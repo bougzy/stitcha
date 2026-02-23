@@ -34,6 +34,9 @@ import type { DashboardStats } from "@/types";
 
 const RevenueChart = dynamic(() => import("@/components/dashboard/revenue-chart"), { ssr: false });
 const GarmentChart = dynamic(() => import("@/components/dashboard/garment-chart"), { ssr: false });
+const DailyPulse = dynamic(() => import("@/components/dashboard/daily-pulse"), { ssr: false });
+const StitchaScore = dynamic(() => import("@/components/dashboard/stitcha-score"), { ssr: false });
+const RankBadge = dynamic(() => import("@/components/dashboard/rank-badge"), { ssr: false });
 
 /* -------------------------------------------------------------------------- */
 /*  Animation variants                                                         */
@@ -226,6 +229,17 @@ export default function DashboardPage() {
               </Button>
             </div>
           </GlassCard>
+        )}
+
+        {/* ---- Daily Pulse + Score + Rank ---- */}
+        {!loading && !error && (
+          <motion.div variants={itemVariants} className="space-y-3">
+            <DailyPulse />
+            <div className="grid gap-3 lg:grid-cols-2">
+              <StitchaScore />
+              <RankBadge />
+            </div>
+          </motion.div>
         )}
 
         {/* ---- Smart Alerts ---- */}

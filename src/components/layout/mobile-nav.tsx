@@ -4,9 +4,9 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Package,
-  ScanLine,
-  Settings,
+  Sparkles,
   Users,
+  Menu,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -19,8 +19,8 @@ const navItems = [
   { label: "Home", href: "/dashboard", icon: LayoutDashboard },
   { label: "Clients", href: "/clients", icon: Users },
   { label: "Orders", href: "/orders", icon: Package },
-  { label: "Scan", href: "/scan", icon: ScanLine },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Vault", href: "/style-vault", icon: Sparkles },
+  { label: "More", href: "/settings", icon: Menu },
 ] as const;
 
 /* -------------------------------------------------------------------------- */
