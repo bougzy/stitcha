@@ -49,6 +49,7 @@ import { OrderTimeline } from "@/components/orders/order-timeline";
 import { WhatsAppActions } from "@/components/common/whatsapp-actions";
 import { ORDER_STATUSES, MEASUREMENT_TYPES } from "@/lib/constants";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { whatsapp, type MessageLanguage } from "@/lib/whatsapp";
 import type { Order, OrderStatus, Measurements, Payment, PaymentMethod } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -173,7 +174,23 @@ export default function OrderDetailPage() {
         throw new Error(json.error || "Failed to update status");
       }
 
-      toast.success(`Status updated to ${ORDER_STATUSES.find((s) => s.value === newStatus)?.label || newStatus}`);
+      toast.success(`Status updated to ${ORDER_STATUSES.find((s) => s.value === newStatus)?.label || newStatus}`, {
+        action: order?.client?.phone
+          ? {
+              label: "Notify on WhatsApp",
+              onClick: () => {
+                const url = whatsapp.statusUpdate(
+                  order.client!.phone,
+                  order.client!.name,
+                  order.title,
+                  newStatus,
+                  order.dueDate
+                );
+                window.open(url, "_blank");
+              },
+            }
+          : undefined,
+      });
       setStatusDialogOpen(false);
       fetchOrder();
     } catch (err) {
@@ -468,7 +485,25 @@ export default function OrderDetailPage() {
         throw new Error(json.error || "Failed to record payment");
       }
 
-      toast.success(`Payment of ${formatCurrency(amount)} recorded`);
+      const newTotalPaid = (order?.depositPaid || 0) + amount;
+      toast.success(`Payment of ${formatCurrency(amount)} recorded`, {
+        action: order?.client?.phone
+          ? {
+              label: "Send Receipt via WhatsApp",
+              onClick: () => {
+                const url = whatsapp.paymentReceipt(
+                  order!.client!.phone,
+                  order!.client!.name,
+                  order!.title,
+                  amount,
+                  newTotalPaid,
+                  order!.price
+                );
+                window.open(url, "_blank");
+              },
+            }
+          : undefined,
+      });
       setShowPaymentForm(false);
       setPaymentAmount("");
       setPaymentMethod("cash");
@@ -745,6 +780,9 @@ export default function OrderDetailPage() {
                           title: order.title,
                           status: order.status,
                           balance,
+                          dueDate: order.dueDate,
+                          totalPaid: order.depositPaid || 0,
+                          totalPrice: order.price,
                         }}
                       />
                     </div>

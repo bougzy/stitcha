@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { whatsapp } from "@/lib/whatsapp";
 import type { Client } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -244,18 +245,13 @@ export default function ScanManagementPage() {
 
   /* ---- Share via WhatsApp (with client phone pre-filled if available) ---- */
   const handleWhatsAppShare = (url: string, clientName: string, clientPhone?: string) => {
-    const message = encodeURIComponent(
-      `Hello ${clientName}! Please use this link to take your body measurement photos for your fitting:\n\n${url}\n\nThe AI will guide you through 2 quick photos. This link expires in 24 hours. Thank you!`
-    );
-
-    // If we have the client's phone, pre-fill it
     if (clientPhone) {
-      let formatted = clientPhone.replace(/\s+/g, "").replace(/^0/, "234");
-      if (!formatted.startsWith("+") && !formatted.startsWith("234")) {
-        formatted = "234" + formatted;
-      }
-      window.open(`https://wa.me/${formatted}?text=${message}`, "_blank");
+      const waUrl = whatsapp.scanInvite(clientPhone, clientName, url);
+      window.open(waUrl, "_blank");
     } else {
+      const message = encodeURIComponent(
+        `Hello ${clientName}! Please use this link to take your body measurement photos for your fitting:\n\n${url}\n\nThe AI will guide you through 2 quick photos. This link expires in 24 hours. Thank you!`
+      );
       window.open(`https://wa.me/?text=${message}`, "_blank");
     }
   };

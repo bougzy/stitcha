@@ -23,6 +23,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import {
   initPoseLandmarker,
   detectLandmarks,
@@ -42,10 +43,13 @@ type ScanStep =
   | "guest-info"
   | "height"
   | "gender"
+  | "pre-scan-check"
   | "front-photo"
   | "side-photo"
   | "review"
   | "analyzing"
+  | "low-confidence"
+  | "manual-entry"
   | "complete"
   | "expired"
   | "invalid"
@@ -143,6 +147,8 @@ export default function ClientScanPage() {
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
   const [measurementResult, setMeasurementResult] =
     useState<MeasurementResult | null>(null);
+  const [manualMeasurements, setManualMeasurements] = useState<Record<string, string>>({});
+  const [deviceChecks, setDeviceChecks] = useState({ lighting: true, camera: true });
 
   const frontInputRef = useRef<HTMLInputElement>(null);
   const sideInputRef = useRef<HTMLInputElement>(null);
@@ -327,6 +333,23 @@ export default function ClientScanPage() {
         payload.guestGender = guestGender;
       }
 
+      setMeasurementResult(result);
+
+      // Check confidence — below 70% triggers low-confidence fallback
+      if (result.confidence < 0.70) {
+        setAnalyzeProgress(100);
+        // Pre-fill manual measurements with confident values
+        const prefill: Record<string, string> = {};
+        for (const [key, val] of Object.entries(result.measurements)) {
+          if (val && key !== "height" && key !== "weight") {
+            prefill[key] = String(val);
+          }
+        }
+        setManualMeasurements(prefill);
+        setStep("low-confidence");
+        return;
+      }
+
       const res = await fetch(`/api/scan/${code}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -337,7 +360,6 @@ export default function ClientScanPage() {
       setAnalyzeProgress(100);
 
       if (json.success) {
-        setMeasurementResult(result);
         setStep("complete");
       } else {
         setStep("error");
@@ -351,6 +373,50 @@ export default function ClientScanPage() {
       setErrorMessage(
         "An error occurred during analysis. Please check your internet connection and try again."
       );
+    }
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /*  Save measurements (shared by accept-anyway and manual-entry)           */
+  /* ---------------------------------------------------------------------- */
+
+  const saveMeasurements = async (measurements: Record<string, number>, confidence: number) => {
+    const gender: BodyGender = sessionInfo?.isQuickScan ? guestGender : selectedGender;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const payload: Record<string, any> = {
+        measurements,
+        confidence,
+        heightCm: Number(heightCm),
+        gender,
+      };
+      if (sessionInfo?.isQuickScan && guestName.trim()) {
+        payload.guestName = guestName.trim();
+        payload.guestPhone = guestPhone.trim();
+        payload.guestGender = guestGender;
+      }
+      setAnalyzeStatus("Saving your measurements...");
+      setStep("analyzing");
+      setAnalyzeProgress(90);
+
+      const res = await fetch(`/api/scan/${code}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      setAnalyzeProgress(100);
+
+      if (json.success) {
+        setMeasurementResult({ measurements, confidence, landmarkQuality: confidence });
+        setStep("complete");
+      } else {
+        setStep("error");
+        setErrorMessage(json.error || "Failed to save measurements. Please try again.");
+      }
+    } catch {
+      setStep("error");
+      setErrorMessage("Failed to save measurements. Please check your internet connection.");
     }
   };
 
@@ -369,21 +435,23 @@ export default function ClientScanPage() {
   /* ---------------------------------------------------------------------- */
 
   const getStepCount = () => {
-    if (sessionInfo?.isQuickScan) return 4; // guest-info, height, front, side
-    return sessionInfo?.clientGender ? 3 : 4; // height, [gender], front, side
+    if (sessionInfo?.isQuickScan) return 5; // guest-info, height, pre-scan-check, front, side
+    return sessionInfo?.clientGender ? 4 : 5; // height, [gender], pre-scan-check, front, side
   };
 
   const getCurrentStep = () => {
     if (sessionInfo?.isQuickScan) {
       if (step === "guest-info") return 1;
       if (step === "height") return 2;
-      if (step === "front-photo") return 3;
-      if (step === "side-photo") return 4;
+      if (step === "pre-scan-check") return 3;
+      if (step === "front-photo") return 4;
+      if (step === "side-photo") return 5;
     } else {
       if (step === "height") return 1;
       if (step === "gender") return 2;
-      if (step === "front-photo") return sessionInfo?.clientGender ? 2 : 3;
-      if (step === "side-photo") return sessionInfo?.clientGender ? 3 : 4;
+      if (step === "pre-scan-check") return sessionInfo?.clientGender ? 2 : 3;
+      if (step === "front-photo") return sessionInfo?.clientGender ? 3 : 4;
+      if (step === "side-photo") return sessionInfo?.clientGender ? 4 : 5;
     }
     return 1;
   };
@@ -741,7 +809,7 @@ export default function ClientScanPage() {
                   if (!sessionInfo?.isQuickScan && !sessionInfo?.clientGender) {
                     setStep("gender");
                   } else {
-                    setStep("front-photo");
+                    setStep("pre-scan-check");
                   }
                 }}
                 disabled={!heightCm}
@@ -831,13 +899,107 @@ export default function ClientScanPage() {
                 <ChevronLeft className="h-5 w-5" />
               </button>
               <button
-                onClick={() => setStep("front-photo")}
+                onClick={() => setStep("pre-scan-check")}
                 className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98]"
               >
                 Continue
                 <ChevronRight className="h-5 w-5" />
               </button>
             </div>
+          </motion.div>
+        )}
+
+        {/* ============================================================== */}
+        {/*  PRE-SCAN CHECKLIST                                             */}
+        {/* ============================================================== */}
+        {step === "pre-scan-check" && (
+          <motion.div
+            key="pre-scan-check"
+            variants={stepVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="flex flex-1 flex-col"
+          >
+            <ProgressBar current={getCurrentStep()} total={getStepCount()} />
+
+            <div className="mt-4 text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
+                <CheckCircle2 className="h-8 w-8 text-[#C75B39]" />
+              </div>
+              <h2 className="text-lg font-bold text-[#1A1A2E]">
+                Before You Start
+              </h2>
+              <p className="mt-1 text-sm text-[#1A1A2E]/55">
+                Check these items for the best measurement results
+              </p>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              <PreScanCheckItem
+                icon="☀️"
+                title="Good lighting"
+                description="Stand near a window or in a well-lit room. Avoid harsh shadows."
+                status={deviceChecks.lighting ? "pass" : "warn"}
+              />
+              <PreScanCheckItem
+                icon="👕"
+                title="Fitted clothing"
+                description="Wear tight or fitted clothes. Avoid baggy agbada, flowing gowns, or thick jackets."
+                status="info"
+              />
+              <PreScanCheckItem
+                icon="🧱"
+                title="Plain background"
+                description="Stand against a plain wall. Clear the area around you."
+                status="info"
+              />
+              <PreScanCheckItem
+                icon="📱"
+                title="Full body visible"
+                description="Ask someone to help or prop your phone 2-3 meters away. Head to toe must be visible."
+                status="info"
+              />
+            </div>
+
+            <div className="mt-4 rounded-xl bg-[#D4A853]/8 p-3">
+              <p className="text-xs leading-relaxed text-[#1A1A2E]/60">
+                <span className="font-semibold text-[#D4A853]">Tip:</span> For the best accuracy,
+                hold a standard A4 paper flat against your chest in the front photo. This helps
+                our AI calibrate pixel-to-centimetre conversion on your specific camera.
+              </p>
+            </div>
+
+            <div className="mt-auto flex gap-3 pt-6">
+              <button
+                onClick={() => {
+                  if (!sessionInfo?.isQuickScan && !sessionInfo?.clientGender) {
+                    setStep("gender");
+                  } else {
+                    setStep("height");
+                  }
+                }}
+                className="flex items-center justify-center rounded-2xl border border-[#1A1A2E]/10 bg-white/50 px-4 py-4.5 text-[#1A1A2E]/60 transition-colors active:bg-white/70"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setStep("front-photo")}
+                className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98]"
+              >
+                <Camera className="h-5 w-5" />
+                Ready — Take Photos
+              </button>
+            </div>
+
+            {/* Manual measurement option */}
+            <button
+              onClick={() => setStep("manual-entry")}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#1A1A2E]/10 bg-white/40 px-4 py-3 text-sm font-medium text-[#1A1A2E]/60 transition-colors active:bg-white/60"
+            >
+              <Ruler className="h-4 w-4" />
+              Enter Measurements Manually Instead
+            </button>
           </motion.div>
         )}
 
@@ -1210,6 +1372,176 @@ export default function ClientScanPage() {
         )}
 
         {/* ============================================================== */}
+        {/*  LOW CONFIDENCE — AI wasn't confident enough                    */}
+        {/* ============================================================== */}
+        {step === "low-confidence" && measurementResult && (
+          <motion.div
+            key="low-confidence"
+            variants={stepVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="flex flex-1 flex-col items-center gap-5"
+          >
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 shadow-[0_0_40px_rgba(245,158,11,0.15)]">
+              <AlertTriangle className="h-10 w-10 text-amber-500" />
+            </div>
+
+            <div className="text-center">
+              <h2 className="text-xl font-bold text-[#1A1A2E]">
+                Results Need Review
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-[#1A1A2E]/60">
+                Our AI confidence was{" "}
+                <span className="font-semibold text-amber-600">
+                  {Math.round(measurementResult.confidence * 100)}%
+                </span>{" "}
+                — below the 70% threshold. This can happen with poor lighting, baggy clothing, or if your full body wasn&apos;t visible.
+              </p>
+            </div>
+
+            <div className="w-full space-y-3 pt-2">
+              {/* Option 1: Retake (recommended) */}
+              <button
+                onClick={resetPhotos}
+                className="flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-5 py-4 text-left text-white shadow-lg transition-all active:scale-[0.98]"
+              >
+                <RotateCcw className="h-5 w-5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">Retake Photos</p>
+                  <p className="text-xs text-white/70">Recommended — try better lighting or clothing</p>
+                </div>
+              </button>
+
+              {/* Option 2: Accept anyway */}
+              <button
+                onClick={() => {
+                  if (measurementResult) {
+                    saveMeasurements(measurementResult.measurements, measurementResult.confidence);
+                  }
+                }}
+                className="flex w-full items-center gap-3 rounded-2xl border border-[#1A1A2E]/10 bg-white/50 px-5 py-4 text-left transition-all active:scale-[0.98]"
+              >
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-amber-500" />
+                <div>
+                  <p className="text-sm font-semibold text-[#1A1A2E]">Accept Results Anyway</p>
+                  <p className="text-xs text-[#1A1A2E]/50">Results may not be fully accurate</p>
+                </div>
+              </button>
+
+              {/* Option 3: Manual entry */}
+              <button
+                onClick={() => setStep("manual-entry")}
+                className="flex w-full items-center gap-3 rounded-2xl border border-[#1A1A2E]/10 bg-white/50 px-5 py-4 text-left transition-all active:scale-[0.98]"
+              >
+                <Ruler className="h-5 w-5 shrink-0 text-[#D4A853]" />
+                <div>
+                  <p className="text-sm font-semibold text-[#1A1A2E]">Switch to Manual Entry</p>
+                  <p className="text-xs text-[#1A1A2E]/50">AI-detected values pre-filled where confident</p>
+                </div>
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ============================================================== */}
+        {/*  MANUAL ENTRY MODE                                              */}
+        {/* ============================================================== */}
+        {step === "manual-entry" && (
+          <motion.div
+            key="manual-entry"
+            variants={stepVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="flex flex-1 flex-col"
+          >
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#D4A853]/10 to-[#C75B39]/10">
+                <Ruler className="h-7 w-7 text-[#D4A853]" />
+              </div>
+              <h2 className="text-lg font-bold text-[#1A1A2E]">
+                Manual Measurements
+              </h2>
+              <p className="mt-1 text-sm text-[#1A1A2E]/55">
+                Enter your measurements in centimetres. Leave blank any you don&apos;t know.
+              </p>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2.5 overflow-y-auto" style={{ maxHeight: "50vh" }}>
+              {[
+                { key: "bust", label: "Bust" },
+                { key: "waist", label: "Waist" },
+                { key: "hips", label: "Hips" },
+                { key: "shoulder", label: "Shoulder" },
+                { key: "chest", label: "Chest" },
+                { key: "neck", label: "Neck" },
+                { key: "armLength", label: "Arm Length" },
+                { key: "sleeveLength", label: "Sleeve" },
+                { key: "backLength", label: "Back Length" },
+                { key: "frontLength", label: "Front Length" },
+                { key: "inseam", label: "Inseam" },
+                { key: "thigh", label: "Thigh" },
+                { key: "knee", label: "Knee" },
+                { key: "calf", label: "Calf" },
+                { key: "wrist", label: "Wrist" },
+                { key: "ankle", label: "Ankle" },
+              ].map((m) => (
+                <div key={m.key}>
+                  <label className="mb-1 block text-[10px] font-medium text-[#1A1A2E]/55">
+                    {m.label} (cm)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={manualMeasurements[m.key] || ""}
+                    onChange={(e) =>
+                      setManualMeasurements((prev) => ({ ...prev, [m.key]: e.target.value }))
+                    }
+                    placeholder="—"
+                    className="w-full rounded-xl border border-[#1A1A2E]/10 bg-white/60 px-3 py-2.5 text-sm text-[#1A1A2E] backdrop-blur-sm placeholder:text-[#1A1A2E]/20 focus:border-[#C75B39]/40 focus:outline-none focus:ring-1 focus:ring-[#C75B39]/15"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-auto space-y-3 pt-6">
+              <button
+                onClick={() => {
+                  const measurements: Record<string, number> = {};
+                  let count = 0;
+                  for (const [key, val] of Object.entries(manualMeasurements)) {
+                    const num = parseFloat(val);
+                    if (!isNaN(num) && num > 0) {
+                      measurements[key] = Math.round(num * 10) / 10;
+                      count++;
+                    }
+                  }
+                  if (heightCm) measurements.height = Number(heightCm);
+                  if (count < 3) {
+                    setErrorMessage("Please enter at least 3 measurements.");
+                    return;
+                  }
+                  saveMeasurements(measurements, 1.0);
+                }}
+                disabled={Object.values(manualMeasurements).filter((v) => v && parseFloat(v) > 0).length < 3}
+                className="flex w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98] disabled:opacity-40"
+              >
+                <CheckCircle2 className="h-5 w-5" />
+                Save Measurements
+              </button>
+              <button
+                onClick={() => setStep(measurementResult ? "low-confidence" : "pre-scan-check")}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#1A1A2E]/10 bg-white/40 px-4 py-3 text-sm font-medium text-[#1A1A2E]/60 transition-colors active:bg-white/60"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ============================================================== */}
         {/*  COMPLETE                                                       */}
         {/* ============================================================== */}
         {step === "complete" && (
@@ -1478,6 +1810,39 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+function PreScanCheckItem({
+  icon,
+  title,
+  description,
+  status,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+  status: "pass" | "warn" | "info";
+}) {
+  return (
+    <div
+      className={cn(
+        "flex gap-3 rounded-xl border p-3.5 backdrop-blur-sm",
+        status === "warn"
+          ? "border-amber-200/60 bg-amber-50/40"
+          : status === "pass"
+          ? "border-green-200/60 bg-green-50/30"
+          : "border-white/30 bg-white/40"
+      )}
+    >
+      <span className="mt-0.5 text-lg">{icon}</span>
+      <div>
+        <p className="text-sm font-semibold text-[#1A1A2E]">{title}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-[#1A1A2E]/55">{description}</p>
+      </div>
+      {status === "pass" && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-green-500" />}
+      {status === "warn" && <AlertTriangle className="ml-auto h-4 w-4 shrink-0 text-amber-500" />}
     </div>
   );
 }

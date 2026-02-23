@@ -13,6 +13,7 @@ import {
   Heart,
   Trophy,
   Calendar,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -25,6 +26,7 @@ const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Clients", href: "/clients", icon: Users },
   { label: "Orders", href: "/orders", icon: Package },
+  { label: "Finances", href: "/finances", icon: Wallet },
   { label: "Style Vault", href: "/style-vault", icon: Sparkles },
   { label: "Heartbeat", href: "/heartbeat", icon: Heart },
   { label: "Calendar", href: "/calendar", icon: Calendar },

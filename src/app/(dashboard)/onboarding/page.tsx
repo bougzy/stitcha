@@ -13,6 +13,8 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Zap,
+  Gift,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -43,7 +45,7 @@ const SPECIALTIES = [
   "Accessories",
 ];
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 
 /* -------------------------------------------------------------------------- */
 /*  Animation variants                                                         */
@@ -128,7 +130,8 @@ export default function OnboardingPage() {
   function validateStep(step: number): boolean {
     const newErrors: Record<string, string> = {};
 
-    if (step === 0) {
+    // Step 0 = welcome (no validation)
+    if (step === 1) {
       if (!formData.businessAddress || formData.businessAddress.length < 5) {
         newErrors.businessAddress = "Please enter your business address";
       }
@@ -140,13 +143,13 @@ export default function OnboardingPage() {
       }
     }
 
-    if (step === 1) {
+    if (step === 2) {
       if (formData.specialties.length === 0) {
         newErrors.specialties = "Select at least one specialty";
       }
     }
 
-    if (step === 2) {
+    if (step === 3) {
       if (formData.bio && formData.bio.length > 500) {
         newErrors.bio = "Bio must be under 500 characters";
       }
@@ -278,8 +281,58 @@ export default function OnboardingPage() {
             animate="center"
             exit="exit"
           >
-            {/* Step 1: Business Details */}
+            {/* Step 0: Welcome */}
             {currentStep === 0 && (
+              <GlassCard gradientBorder padding="lg">
+                <div className="space-y-5 text-center">
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: 0.2, type: "spring", stiffness: 300 }}
+                    className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39] to-[#D4A853] shadow-lg"
+                  >
+                    <Zap className="h-8 w-8 text-white" strokeWidth={1.5} />
+                  </motion.div>
+                  <div>
+                    <h2 className="text-xl font-bold text-[#1A1A2E]">Welcome to Stitcha!</h2>
+                    <p className="mt-2 text-sm text-[#1A1A2E]/50">
+                      The smartest way to manage your fashion business in Nigeria
+                    </p>
+                  </div>
+
+                  {/* Quick wins preview */}
+                  <div className="space-y-2.5 text-left">
+                    {[
+                      { icon: "📱", text: "Take AI body measurements with just a phone camera" },
+                      { icon: "📦", text: "Track orders from cutting to delivery" },
+                      { icon: "💰", text: "Manage payments & send WhatsApp reminders" },
+                      { icon: "🔗", text: "Share scan links with clients — no app needed" },
+                    ].map((item, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 + i * 0.1 }}
+                        className="flex items-center gap-3 rounded-xl bg-white/50 px-4 py-3"
+                      >
+                        <span className="text-xl">{item.icon}</span>
+                        <span className="text-sm text-[#1A1A2E]/70">{item.text}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2 rounded-xl bg-[#D4A853]/10 px-4 py-2.5">
+                    <Gift className="h-4 w-4 text-[#D4A853]" />
+                    <span className="text-xs font-medium text-[#D4A853]">
+                      3 free AI scans included with your Starter plan
+                    </span>
+                  </div>
+                </div>
+              </GlassCard>
+            )}
+
+            {/* Step 1: Business Details */}
+            {currentStep === 1 && (
               <GlassCard gradientBorder padding="lg">
                 <div className="space-y-5">
                   <div className="flex items-center gap-2.5 text-[#1A1A2E]">
@@ -320,7 +373,7 @@ export default function OnboardingPage() {
             )}
 
             {/* Step 2: Specialties */}
-            {currentStep === 1 && (
+            {currentStep === 2 && (
               <GlassCard gradientBorder padding="lg">
                 <div className="space-y-5">
                   <div className="flex items-center gap-2.5 text-[#1A1A2E]">
@@ -381,7 +434,7 @@ export default function OnboardingPage() {
             )}
 
             {/* Step 3: Bio & Photo */}
-            {currentStep === 2 && (
+            {currentStep === 3 && (
               <GlassCard gradientBorder padding="lg">
                 <div className="space-y-5">
                   <div className="flex items-center gap-2.5 text-[#1A1A2E]">
@@ -497,7 +550,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* ---- Skip option ---- */}
-        {currentStep === 2 && (
+        {currentStep === 3 && (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

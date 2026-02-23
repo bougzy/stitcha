@@ -45,6 +45,7 @@ import { ClientInsights } from "@/components/clients/client-insights";
 import { EaseCalculator } from "@/components/common/ease-calculator";
 import { FabricCalculator } from "@/components/common/fabric-calculator";
 import { WhatsAppActions } from "@/components/common/whatsapp-actions";
+import { ClientSummaryCard } from "@/components/clients/client-summary-card";
 import { MEASUREMENT_TYPES } from "@/lib/constants";
 import {
   cn,
@@ -419,6 +420,17 @@ export default function ClientDetailPage() {
             </div>
           </div>
         </GlassCard>
+
+        {/* Client Summary Card */}
+        {orders.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.06 }}
+          >
+            <ClientSummaryCard client={client} orders={orders} />
+          </motion.div>
+        )}
 
         {/* Client Insights */}
         <motion.div

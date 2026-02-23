@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { useDesigner } from "@/hooks/use-designer";
 import { getInitials } from "@/lib/utils";
 import { Bell, ChevronRight, LogOut, Menu, Settings, User } from "lucide-react";
+import { SyncStatusDot } from "@/components/common/offline-banner";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -128,6 +129,9 @@ export function Header({ onToggleSidebar, sidebarCollapsed = false }: HeaderProp
 
         {/* Right section */}
         <div className="flex items-center gap-2">
+          {/* Sync status */}
+          <SyncStatusDot />
+
           {/* Notification bell */}
           <button
             className="relative flex h-9 w-9 items-center justify-center rounded-xl text-[#1A1A2E]/60 transition-colors hover:bg-[#1A1A2E]/5 hover:text-[#1A1A2E]"

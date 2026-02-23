@@ -6,6 +6,8 @@ import { MobileNav } from "@/components/layout/mobile-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useState, type ReactNode } from "react";
 import { InstallPrompt } from "@/components/common/install-prompt";
+import { OfflineBanner } from "@/components/common/offline-banner";
+import { CommandPalette } from "@/components/common/command-palette";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -35,6 +37,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Header */}
       <Header onToggleSidebar={() => setSidebarOpen((prev) => !prev)} sidebarCollapsed={sidebarCollapsed} />
 
+      {/* Offline / sync banner */}
+      <OfflineBanner />
+
       {/* Main content */}
       <main
         id="main-content"
@@ -56,6 +61,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* PWA install prompt */}
       <InstallPrompt />
+
+      {/* Command palette (Cmd+K) */}
+      <CommandPalette />
     </div>
   );
 }

@@ -128,9 +128,12 @@ export const SUBSCRIPTION_PLANS = [
       "Manual measurements",
       "AI body scanning (3/month)",
       "Basic order tracking",
+      "WhatsApp templates",
     ],
     clientLimit: 10,
     scanLimit: 3,
+    trialDays: 0,
+    badge: null,
   },
   {
     id: "pro",
@@ -139,13 +142,17 @@ export const SUBSCRIPTION_PLANS = [
     currency: "NGN",
     features: [
       "Unlimited clients",
-      "AI body scanning",
-      "Order management",
-      "PDF exports",
-      "Email notifications",
+      "AI body scanning (50/month)",
+      "Full order management",
+      "PDF invoices & receipts",
+      "Financial dashboard",
+      "WhatsApp integration",
+      "Offline mode",
     ],
     clientLimit: -1,
     scanLimit: 50,
+    trialDays: 14,
+    badge: "Most Popular",
   },
   {
     id: "business",
@@ -153,16 +160,41 @@ export const SUBSCRIPTION_PLANS = [
     price: 15000,
     currency: "NGN",
     features: [
-      "Everything in Pro",
-      "SMS notifications",
-      "Public profile page",
+      "Everything in Professional",
+      "Unlimited AI scans",
+      "Public designer profile",
+      "Client portal & sharing",
       "Priority support",
       "Team collaboration",
+      "Advanced analytics",
     ],
     clientLimit: -1,
     scanLimit: -1,
+    trialDays: 14,
+    badge: "Best Value",
   },
 ] as const;
+
+/* -------------------------------------------------------------------------- */
+/*  Credit Packs — pay-as-you-go scan credits                                 */
+/* -------------------------------------------------------------------------- */
+
+export const CREDIT_PACKS = [
+  { id: "pack-10", scans: 10, price: 1000, currency: "NGN", label: "Starter Pack" },
+  { id: "pack-25", scans: 25, price: 2000, currency: "NGN", label: "Growth Pack", badge: "Best Value" },
+  { id: "pack-50", scans: 50, price: 3500, currency: "NGN", label: "Pro Pack" },
+] as const;
+
+/* -------------------------------------------------------------------------- */
+/*  Referral Program                                                           */
+/* -------------------------------------------------------------------------- */
+
+export const REFERRAL_CONFIG = {
+  referrerReward: 5,
+  refereeReward: 5,
+  maxReferrals: 50,
+  shareMessage: "Hey! I use Stitcha to take AI body measurements for my clients. Sign up with my link and we both get 5 free scans!",
+} as const;
 
 export const NIGERIAN_STATES = [
   "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue",
