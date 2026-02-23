@@ -1,26 +1,290 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================
+   STITCHA DESIGN SYSTEM
+   Glassmorphism + Warm African Palette
+   ============================================ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* -- Colors: Terracotta -- */
+  --color-terracotta-50: #fef3ee;
+  --color-terracotta-100: #fce3d2;
+  --color-terracotta-200: #f8c4a3;
+  --color-terracotta-300: #f39b6a;
+  --color-terracotta-400: #ec6e38;
+  --color-terracotta-500: #c75b39;
+  --color-terracotta-600: #b14a2b;
+  --color-terracotta-700: #933a22;
+  --color-terracotta-800: #783121;
+  --color-terracotta-900: #642b1e;
+  --color-terracotta-950: #36130d;
+
+  /* -- Colors: Gold -- */
+  --color-gold-50: #fcf8ee;
+  --color-gold-100: #f6ecd0;
+  --color-gold-200: #edd79d;
+  --color-gold-300: #e3be6a;
+  --color-gold-400: #d4a853;
+  --color-gold-500: #c48e30;
+  --color-gold-600: #ad7027;
+  --color-gold-700: #905323;
+  --color-gold-800: #774322;
+  --color-gold-900: #633820;
+  --color-gold-950: #391c0e;
+
+  /* -- Colors: Charcoal -- */
+  --color-charcoal-50: #eeeef2;
+  --color-charcoal-100: #d8d8e2;
+  --color-charcoal-200: #b5b5c7;
+  --color-charcoal-300: #8989a6;
+  --color-charcoal-400: #65658a;
+  --color-charcoal-500: #4a4a6f;
+  --color-charcoal-600: #3a3a5a;
+  --color-charcoal-700: #2d2d47;
+  --color-charcoal-800: #232339;
+  --color-charcoal-900: #1a1a2e;
+  --color-charcoal-950: #0e0e1a;
+
+  /* -- Colors: Cream -- */
+  --color-cream-50: #fefdfb;
+  --color-cream-100: #fdf9f3;
+  --color-cream-200: #f5e6d3;
+  --color-cream-300: #edd3b3;
+  --color-cream-400: #e2b88a;
+  --color-cream-500: #d9a06a;
+  --color-cream-600: #cb834d;
+  --color-cream-700: #aa6a3e;
+  --color-cream-800: #895537;
+  --color-cream-900: #6f4730;
+  --color-cream-950: #3b2318;
+
+  /* -- Semantic Colors -- */
+  --color-background: #fafaf8;
+  --color-foreground: #1a1a2e;
+  --color-muted: #f0ede8;
+  --color-muted-foreground: #65658a;
+  --color-card: rgba(255, 255, 255, 0.7);
+  --color-card-foreground: #1a1a2e;
+  --color-border: rgba(26, 26, 46, 0.1);
+  --color-input: rgba(26, 26, 46, 0.08);
+  --color-ring: #c75b39;
+  --color-primary: #c75b39;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #d4a853;
+  --color-secondary-foreground: #1a1a2e;
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+  --color-accent: #f5e6d3;
+  --color-accent-foreground: #1a1a2e;
+  --color-success: #16a34a;
+  --color-warning: #d4a853;
+  --color-info: #4a4a6f;
+
+  /* -- Typography -- */
+  --font-sans: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+  --font-heading: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+
+  /* -- Radius -- */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  /* -- Shadows -- */
+  --shadow-glass: 0 8px 32px rgba(26, 26, 46, 0.08);
+  --shadow-glass-sm: 0 2px 16px rgba(26, 26, 46, 0.06);
+  --shadow-glass-lg: 0 16px 48px rgba(26, 26, 46, 0.12);
+  --shadow-glow: 0 0 20px rgba(199, 91, 57, 0.15);
+
+  /* -- Animations -- */
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.3s ease-out;
+  --animate-slide-down: slide-down 0.3s ease-out;
+  --animate-scale-in: scale-in 0.2s ease-out;
+  --animate-shimmer: shimmer 2s infinite;
+  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+  --animate-spin-slow: spin 3s linear infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* -- Keyframes -- */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* -- Base Styles -- */
+* {
+  border-color: var(--color-border);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* -- Glassmorphism Utilities -- */
+.glass {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: var(--shadow-glass);
+}
+
+.glass-subtle {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: var(--shadow-glass-sm);
+}
+
+.glass-dark {
+  background: rgba(26, 26, 46, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-glass);
+  color: #fafaf8;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-glass-lg);
+  transform: translateY(-2px);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(26, 26, 46, 0.12);
+  transition: all 0.2s ease;
+}
+
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--color-terracotta-400);
+  box-shadow: 0 0 0 3px rgba(199, 91, 57, 0.1);
+}
+
+/* -- Background Decorations -- */
+.bg-mesh {
+  background-image:
+    radial-gradient(at 20% 20%, rgba(199, 91, 57, 0.08) 0%, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(212, 168, 83, 0.08) 0%, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(245, 230, 211, 0.3) 0%, transparent 70%);
+}
+
+.bg-mesh-dark {
+  background-image:
+    radial-gradient(at 20% 20%, rgba(199, 91, 57, 0.15) 0%, transparent 50%),
+    radial-gradient(at 80% 80%, rgba(212, 168, 83, 0.1) 0%, transparent 50%);
+}
+
+/* -- Shimmer Loading -- */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* -- Scrollbar -- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(26, 26, 46, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 26, 46, 0.25);
+}
+
+/* -- Focus Ring -- */
+.focus-ring {
+  outline: none;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-terracotta-400);
+  outline-offset: 2px;
+}
+
+/* -- Mobile Optimizations -- */
+@media (max-width: 640px) {
+  html {
+    font-size: 15px;
+  }
+
+  .glass, .glass-card {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+}
+
+/* -- Safe Areas for PWA -- */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
 }

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stitcha - Offline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background: #fafaf8;
+      color: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background-image:
+        radial-gradient(at 20% 20%, rgba(199, 91, 57, 0.08) 0%, transparent 50%),
+        radial-gradient(at 80% 80%, rgba(212, 168, 83, 0.08) 0%, transparent 50%);
+    }
+    .container {
+      max-width: 400px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 1rem;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 8px 32px rgba(26, 26, 46, 0.08);
+    }
+    .logo {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #C75B39, #D4A853);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.5rem;
+      font-size: 28px; font-weight: 700; color: white;
+    }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.75rem; }
+    p { font-size: 0.938rem; color: #65658a; line-height: 1.6; margin-bottom: 1.5rem; }
+    button {
+      background: linear-gradient(135deg, #C75B39, #b14a2b);
+      color: white; border: none; padding: 0.75rem 2rem;
+      border-radius: 0.75rem; font-size: 0.938rem; font-weight: 600;
+      cursor: pointer; transition: transform 0.2s;
+    }
+    button:active { transform: scale(0.97); }
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">S</div>
+    <div class="icon">📡</div>
+    <h1>You're Offline</h1>
+    <p>It looks like you've lost your internet connection. Your cached data is still available, but some features may not work until you're back online.</p>
+    <button onclick="window.location.reload()">Try Again</button>
+  </div>
+</body>
+</html>
