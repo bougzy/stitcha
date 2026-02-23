@@ -305,6 +305,27 @@ export default function ClientsPage() {
           limit={usage.clientLimit}
           planName={usage.planName}
           resource="clients"
+          onUpgrade={async (planId) => {
+            try {
+              const res = await fetch("/api/billing/checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ planId }),
+              });
+              const json = await res.json();
+              if (json.needsConfig) {
+                toast.error("Payment not configured. Contact the administrator.");
+                return;
+              }
+              if (json.success) {
+                window.location.href = json.data.authorizationUrl;
+              } else {
+                toast.error(json.error || "Failed to start checkout");
+              }
+            } catch {
+              toast.error("Failed to connect to payment system");
+            }
+          }}
         />
       )}
 

@@ -57,6 +57,7 @@ import {
   formatPhone,
   formatDate,
   generateScanLink,
+  measurementToInches,
 } from "@/lib/utils";
 import type { Client, Measurements, Order } from "@/types";
 import type { MeasurementInput } from "@/lib/validations";
@@ -101,6 +102,7 @@ export default function ClientDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
+  const [measurementUnit, setMeasurementUnit] = useState<"cm" | "in">("cm");
   const [reviewAdjustments, setReviewAdjustments] = useState<Record<string, number>>({});
   const [approvingMeasurements, setApprovingMeasurements] = useState(false);
   const [plausibilityWarnings, setPlausibilityWarnings] = useState<MeasurementWarning[]>([]);
@@ -670,6 +672,16 @@ export default function ClientDetailPage() {
                   </div>
                 )}
 
+                {/* Unit toggle */}
+                <div className="mb-4">
+                  <button
+                    onClick={() => setMeasurementUnit(u => u === "cm" ? "in" : "cm")}
+                    className="rounded-full border border-[#1A1A2E]/10 bg-white/60 px-3 py-1 text-xs font-medium text-[#1A1A2E]/60 transition-colors hover:bg-white/80"
+                  >
+                    {measurementUnit === "cm" ? "Switch to inches" : "Switch to cm"}
+                  </button>
+                </div>
+
                 {/* Height and Weight */}
                 {(measurements.height || measurements.weight) && (
                   <div className="mb-4 flex gap-4">
@@ -677,9 +689,11 @@ export default function ClientDetailPage() {
                       <div className="rounded-xl bg-[#C75B39]/5 px-4 py-2">
                         <p className="text-xs text-[#1A1A2E]/50">Height</p>
                         <p className="text-lg font-semibold text-[#1A1A2E]">
-                          {measurements.height}{" "}
+                          {measurementUnit === "cm"
+                            ? measurements.height
+                            : measurementToInches(measurements.height as number)}{" "}
                           <span className="text-xs font-normal text-[#1A1A2E]/40">
-                            cm
+                            {measurementUnit === "cm" ? "cm" : "in"}
                           </span>
                         </p>
                       </div>
@@ -688,9 +702,11 @@ export default function ClientDetailPage() {
                       <div className="rounded-xl bg-[#D4A853]/10 px-4 py-2">
                         <p className="text-xs text-[#1A1A2E]/50">Weight</p>
                         <p className="text-lg font-semibold text-[#1A1A2E]">
-                          {measurements.weight}{" "}
+                          {measurementUnit === "cm"
+                            ? measurements.weight
+                            : (Number(measurements.weight) * 2.205).toFixed(1)}{" "}
                           <span className="text-xs font-normal text-[#1A1A2E]/40">
-                            kg
+                            {measurementUnit === "cm" ? "kg" : "lbs"}
                           </span>
                         </p>
                       </div>
@@ -817,9 +833,11 @@ export default function ClientDetailPage() {
                             )}
                           </div>
                           <p className="mt-0.5 text-base font-semibold text-[#1A1A2E]">
-                            {value}{" "}
+                            {measurementUnit === "cm"
+                              ? value
+                              : measurementToInches(value)}{" "}
                             <span className="text-[10px] font-normal text-[#1A1A2E]/35">
-                              {type.unit}
+                              {measurementUnit === "cm" ? type.unit : "in"}
                             </span>
                           </p>
                         </div>

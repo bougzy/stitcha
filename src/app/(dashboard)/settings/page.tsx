@@ -20,6 +20,7 @@ import {
   Sparkles,
   Crown,
   Camera,
+  Zap,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -463,6 +464,32 @@ function BusinessTab({
     designer.specialties || []
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+
+  async function handleUpgrade(planId: string) {
+    setUpgrading(true);
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId }),
+      });
+      const json = await res.json();
+      if (json.needsConfig) {
+        toast.error("Payment system not configured. Set PAYSTACK_SECRET_KEY in environment variables.");
+        return;
+      }
+      if (!json.success) {
+        toast.error(json.error || "Failed to initiate checkout");
+        return;
+      }
+      window.location.href = json.data.authorizationUrl;
+    } catch {
+      toast.error("Failed to connect to payment system");
+    } finally {
+      setUpgrading(false);
+    }
+  }
 
   function toggleSpecialty(specialty: string) {
     setSelectedSpecialties((prev) =>
@@ -605,26 +632,86 @@ function BusinessTab({
                   : `${formatCurrency(currentPlan.price)}/month`}
               </p>
             </div>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (currentPlan.price === 0) {
+                  handleUpgrade("pro");
+                } else {
+                  toast.info("Plan management coming soon");
+                }
+              }}
+              loading={upgrading}
+            >
+              <Zap className="h-3.5 w-3.5" />
               {currentPlan.price === 0 ? "Upgrade" : "Manage"}
             </Button>
           </div>
 
-          <div className="space-y-2">
+          {/* Plan comparison */}
+          <div className="space-y-3">
             <p className="text-xs font-medium text-[#1A1A2E]/50 uppercase tracking-wider">
-              Plan Features
+              Available Plans
             </p>
-            <ul className="space-y-1.5">
-              {currentPlan.features.map((feature) => (
-                <li
-                  key={feature}
-                  className="flex items-center gap-2 text-sm text-[#1A1A2E]/65"
-                >
-                  <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-[#D4A853]" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {SUBSCRIPTION_PLANS.map((plan) => {
+                const isCurrent = plan.id === designer.subscription;
+                return (
+                  <div
+                    key={plan.id}
+                    className={cn(
+                      "rounded-xl border p-4",
+                      isCurrent
+                        ? "border-[#C75B39]/30 bg-[#C75B39]/5"
+                        : "border-white/30 bg-white/40"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-[#1A1A2E]">
+                        {plan.name}
+                      </h4>
+                      {plan.badge && (
+                        <Badge variant="secondary" className="text-[9px]">
+                          {plan.badge}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="mt-1 text-lg font-bold text-[#1A1A2E]">
+                      {plan.price === 0
+                        ? "Free"
+                        : `${formatCurrency(plan.price)}/mo`}
+                    </p>
+                    <ul className="mt-2 space-y-1">
+                      {plan.features.slice(0, 3).map((f) => (
+                        <li
+                          key={f}
+                          className="flex items-center gap-1.5 text-[10px] text-[#1A1A2E]/55"
+                        >
+                          <Sparkles className="h-3 w-3 text-[#D4A853]" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                    {!isCurrent && plan.price > 0 && (
+                      <Button
+                        size="sm"
+                        className="mt-3 w-full"
+                        onClick={() => handleUpgrade(plan.id)}
+                        loading={upgrading}
+                      >
+                        Upgrade to {plan.name}
+                      </Button>
+                    )}
+                    {isCurrent && (
+                      <div className="mt-3 rounded-lg border border-[#C75B39]/20 py-1.5 text-center text-[10px] font-semibold text-[#C75B39]">
+                        Current Plan
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </GlassCard>

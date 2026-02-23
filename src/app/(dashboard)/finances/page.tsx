@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   DollarSign,
@@ -17,8 +17,11 @@ import {
   MessageCircle,
   FileText,
   ChevronRight,
+  Plus,
+  Check,
 } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
 import { StatCard } from "@/components/common/stat-card";
@@ -26,6 +29,15 @@ import { EmptyState } from "@/components/common/empty-state";
 import { SectionLoader } from "@/components/common/loading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { cn, formatCurrency } from "@/lib/utils";
 import { whatsapp } from "@/lib/whatsapp";
 import { haptics } from "@/lib/haptics";
@@ -129,24 +141,91 @@ export default function FinancesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const res = await fetch("/api/finances/summary");
-        const json = await res.json();
-        if (!json.success) {
-          setError(json.error || "Failed to load financial data");
-          return;
-        }
-        setData(json.data);
-      } catch {
-        setError("Failed to load financial data");
-      } finally {
-        setLoading(false);
+  // Payment recording state
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [unpaidOrders, setUnpaidOrders] = useState<{
+    _id: string;
+    title: string;
+    price: number;
+    depositPaid: number;
+    client?: { name: string };
+  }[]>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [recordingPayment, setRecordingPayment] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/finances/summary");
+      const json = await res.json();
+      if (!json.success) {
+        setError(json.error || "Failed to load financial data");
+        return;
       }
+      setData(json.data);
+    } catch {
+      setError("Failed to load financial data");
+    } finally {
+      setLoading(false);
     }
-    fetchData();
   }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  async function fetchUnpaidOrders() {
+    setLoadingOrders(true);
+    try {
+      const res = await fetch("/api/orders?paymentStatus=unpaid,partial&limit=50");
+      const json = await res.json();
+      if (json.success && json.data?.orders) {
+        setUnpaidOrders(
+          json.data.orders
+            .filter((o: { price: number; depositPaid?: number }) => o.price > (o.depositPaid || 0))
+            .map((o: { _id: string; title: string; price: number; depositPaid?: number; clientId?: { name: string } }) => ({
+              _id: o._id,
+              title: o.title,
+              price: o.price,
+              depositPaid: o.depositPaid || 0,
+              client: o.clientId ? { name: (o.clientId as { name: string }).name } : undefined,
+            }))
+        );
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoadingOrders(false);
+    }
+  }
+
+  async function handleRecordPayment() {
+    const amount = parseFloat(paymentAmount);
+    if (!amount || amount <= 0) { toast.error("Enter a valid amount"); return; }
+    if (!selectedOrderId) { toast.error("Select an order"); return; }
+    try {
+      setRecordingPayment(true);
+      const res = await fetch(`/api/orders/${selectedOrderId}/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, method: paymentMethod, note: paymentNote || undefined }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Failed");
+      toast.success(`Payment of ${formatCurrency(amount)} recorded`);
+      haptics.success();
+      setPaymentDialogOpen(false);
+      setSelectedOrderId(""); setPaymentAmount(""); setPaymentMethod("cash"); setPaymentNote("");
+      fetchData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record payment");
+    } finally {
+      setRecordingPayment(false);
+    }
+  }
 
   function handleWhatsAppChase(clientName: string, clientPhone: string, orderTitle: string, balance: number) {
     haptics.medium();
@@ -190,7 +269,7 @@ export default function FinancesPage() {
         className="space-y-6 lg:space-y-8"
       >
         {/* Header */}
-        <motion.div variants={itemVariants} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-[#1A1A2E] lg:text-3xl">
               Finances
@@ -199,6 +278,14 @@ export default function FinancesPage() {
               Track your revenue, payments, and outstanding balances
             </p>
           </div>
+          <Button
+            size="sm"
+            className="gap-1.5 self-start sm:self-auto"
+            onClick={() => { setPaymentDialogOpen(true); fetchUnpaidOrders(); }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Record Payment
+          </Button>
         </motion.div>
 
         {/* Stats Grid */}
@@ -304,6 +391,17 @@ export default function FinancesPage() {
                         <span className="text-sm font-semibold text-red-600">
                           {formatCurrency(order.balance)}
                         </span>
+                        <button
+                          onClick={() => {
+                            setSelectedOrderId(order._id);
+                            setPaymentDialogOpen(true);
+                            fetchUnpaidOrders();
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#D4A853]/10 text-[#D4A853] transition-colors hover:bg-[#D4A853]/20"
+                          title="Record payment"
+                        >
+                          <DollarSign className="h-3.5 w-3.5" />
+                        </button>
                         {order.client?.phone && (
                           <button
                             onClick={() =>
@@ -514,6 +612,97 @@ export default function FinancesPage() {
           </div>
         </motion.div>
       </motion.div>
+
+      {/* Record Payment Dialog */}
+      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+        <DialogContent>
+          <DialogClose />
+          <DialogHeader>
+            <DialogTitle>Record Payment</DialogTitle>
+            <DialogDescription>
+              Record a payment against an unpaid or partially paid order.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 space-y-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">
+                Select Order
+              </label>
+              {loadingOrders ? (
+                <div className="py-3 text-center text-xs text-[#1A1A2E]/40">Loading orders...</div>
+              ) : unpaidOrders.length === 0 ? (
+                <div className="py-3 text-center text-xs text-[#1A1A2E]/40">No unpaid orders found</div>
+              ) : (
+                <select
+                  value={selectedOrderId}
+                  onChange={(e) => setSelectedOrderId(e.target.value)}
+                  className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2.5 text-sm"
+                >
+                  <option value="">Choose an order...</option>
+                  {unpaidOrders.map((o) => (
+                    <option key={o._id} value={o._id}>
+                      {o.title} — {o.client?.name || "Unknown"} — Balance: {formatCurrency(o.price - o.depositPaid)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">Amount (NGN)</label>
+              <input
+                type="number"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                placeholder="Enter amount"
+                className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2.5 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">Payment Method</label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2.5 text-sm"
+              >
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="card">Card</option>
+                <option value="mobile_money">Mobile Money</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">Note (optional)</label>
+              <input
+                type="text"
+                value={paymentNote}
+                onChange={(e) => setPaymentNote(e.target.value)}
+                placeholder="e.g. First installment"
+                className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="mt-6">
+            <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRecordPayment}
+              loading={recordingPayment}
+              disabled={!selectedOrderId || !paymentAmount}
+              className="gap-1.5"
+            >
+              <Check className="h-4 w-4" />
+              Record Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageTransition>
   );
 }

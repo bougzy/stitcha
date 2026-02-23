@@ -57,6 +57,16 @@ export async function GET(request: NextRequest) {
       filter.clientId = clientId;
     }
 
+    const paymentStatus = searchParams.get("paymentStatus") || "";
+    if (paymentStatus) {
+      const statuses = paymentStatus.split(",").map((s) => s.trim()).filter(Boolean);
+      if (statuses.length === 1) {
+        filter.paymentStatus = statuses[0];
+      } else if (statuses.length > 1) {
+        filter.paymentStatus = { $in: statuses };
+      }
+    }
+
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate("clientId", "name phone email gender")

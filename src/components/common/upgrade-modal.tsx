@@ -15,6 +15,8 @@ interface UpgradeModalProps {
   planName: string;
   /** What resource triggered the upgrade (e.g. "clients", "scans") */
   resource?: string;
+  /** Callback when user clicks upgrade */
+  onUpgrade?: (planId: string) => void;
 }
 
 export function UpgradeModal({
@@ -24,6 +26,7 @@ export function UpgradeModal({
   limit,
   planName,
   resource = "clients",
+  onUpgrade,
 }: UpgradeModalProps) {
   const proPlan = SUBSCRIPTION_PLANS.find((p) => p.id === "pro");
 
@@ -105,7 +108,18 @@ export function UpgradeModal({
 
             {/* Action buttons */}
             <div className="px-6 pb-6 pt-4 space-y-2">
-              <Button className="w-full gap-2" size="lg">
+              <Button
+                className="w-full gap-2"
+                size="lg"
+                onClick={() => {
+                  if (onUpgrade) {
+                    onUpgrade("pro");
+                  } else {
+                    // Fallback: redirect to settings
+                    window.location.href = "/settings";
+                  }
+                }}
+              >
                 <Zap className="h-4 w-4" />
                 Upgrade to Professional
               </Button>

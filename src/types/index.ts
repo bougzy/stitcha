@@ -20,6 +20,8 @@ export interface Designer {
   avatar?: string;
   specialties: string[];
   subscription: "free" | "pro" | "business";
+  subscriptionExpiry?: string;
+  paystackCustomerId?: string;
   role: DesignerRole;
   teamOwnerId?: string;
   lifetimeCounts: LifetimeCounts;

@@ -65,72 +65,236 @@ export type BodyGender = "male" | "female";
 /*  - Both: Different waist-to-hip ratios than Western averages                 */
 /* -------------------------------------------------------------------------- */
 
-const BODY_RATIOS = {
+interface BodyRatioSet {
+  bustFromShoulder: number;
+  chestFromShoulder: number;
+  waistFromHipWidth: number;
+  hipsFromHipWidth: number;
+  bustHalfWidthRatio: number;
+  waistHalfWidthRatio: number;
+  hipHalfWidthRatio: number;
+  chestDepthFactor: number;
+  hipDepthFactor: number;
+  waistDepthFactor: number;
+  neckWidthFromEars: number;
+  neckCircFactor: number;
+  thighWidthFromHip: number;
+  thighCircFactor: number;
+  backLengthCurveCorrection: number;
+  frontToBackRatio: number;
+  averageBMI: number;
+  wristFactor: number;
+  calfFromKnee: number;
+  calfCircFactor: number;
+  kneeCircFactor: number;
+}
+
+const BASE_RATIOS: Record<BodyGender, BodyRatioSet> = {
   female: {
-    // Circumference multipliers from front-view width measurements
-    bustFromShoulder: 2.65,       // Was 2.55 — African women: fuller bust
-    chestFromShoulder: 2.60,      // Slightly less than bust
-    waistFromHipWidth: 2.25,      // Was 2.35 — more defined waist
-    hipsFromHipWidth: 2.65,       // Was 2.5 — fuller hips
-    // Ellipse adjustments for side-view calculations
-    bustHalfWidthRatio: 0.54,     // Was 0.52
-    waistHalfWidthRatio: 0.46,    // Was 0.48 — narrower waist
-    hipHalfWidthRatio: 0.60,      // Was 0.58 — wider hips
-    chestDepthFactor: 0.92,       // Was 0.9
-    hipDepthFactor: 1.15,         // Was 1.1 — more depth
-    waistDepthFactor: 0.80,       // Was 0.85 — more defined waist
-    // Neck: African women typically have slightly thicker necks
-    neckWidthFromEars: 0.68,      // Was 0.65
-    neckCircFactor: 0.34,         // Was 0.33
-    // Thigh: Fuller thighs relative to hip
-    thighWidthFromHip: 0.42,      // Was 0.38
-    thighCircFactor: 2.35,        // Was 2.3
-    // Back / front length curve correction
-    backLengthCurveCorrection: 1.18,  // Was 1.15 — accounts for bust/posture
-    frontToBackRatio: 0.93,           // Was 0.95 — slightly shorter front
-    // Weight: Average BMI for Nigerian women (WHO/NPC data)
-    averageBMI: 24.5,             // Was 22.5 — Nigerian avg is slightly higher
-    // Wrist
-    wristFactor: 0.82,           // Was 0.85
-    // Calf
-    calfFromKnee: 0.90,          // Was 0.88
-    calfCircFactor: 2.25,        // Was 2.2
-    // Knee
-    kneeCircFactor: 1.18,        // Was 1.15
+    bustFromShoulder: 2.65,
+    chestFromShoulder: 2.60,
+    waistFromHipWidth: 2.25,
+    hipsFromHipWidth: 2.65,
+    bustHalfWidthRatio: 0.54,
+    waistHalfWidthRatio: 0.46,
+    hipHalfWidthRatio: 0.60,
+    chestDepthFactor: 0.92,
+    hipDepthFactor: 1.15,
+    waistDepthFactor: 0.80,
+    neckWidthFromEars: 0.68,
+    neckCircFactor: 0.34,
+    thighWidthFromHip: 0.42,
+    thighCircFactor: 2.35,
+    backLengthCurveCorrection: 1.18,
+    frontToBackRatio: 0.93,
+    averageBMI: 24.5,
+    wristFactor: 0.82,
+    calfFromKnee: 0.90,
+    calfCircFactor: 2.25,
+    kneeCircFactor: 1.18,
   },
   male: {
-    // Circumference multipliers from front-view width measurements
-    bustFromShoulder: 2.52,       // Men: broader chest relative to frame
+    bustFromShoulder: 2.52,
     chestFromShoulder: 2.52,
-    waistFromHipWidth: 2.45,      // Less waist definition than women
-    hipsFromHipWidth: 2.42,       // Narrower hips relative to women
-    // Ellipse adjustments
+    waistFromHipWidth: 2.45,
+    hipsFromHipWidth: 2.42,
     bustHalfWidthRatio: 0.53,
     waistHalfWidthRatio: 0.50,
     hipHalfWidthRatio: 0.54,
     chestDepthFactor: 0.88,
     hipDepthFactor: 1.05,
     waistDepthFactor: 0.88,
-    // Neck: Men have thicker necks
     neckWidthFromEars: 0.72,
     neckCircFactor: 0.36,
-    // Thigh
     thighWidthFromHip: 0.36,
     thighCircFactor: 2.25,
-    // Back / front length
     backLengthCurveCorrection: 1.12,
     frontToBackRatio: 0.96,
-    // Weight: Average BMI for Nigerian men
     averageBMI: 23.8,
-    // Wrist
     wristFactor: 0.88,
-    // Calf
     calfFromKnee: 0.86,
     calfCircFactor: 2.15,
-    // Knee
     kneeCircFactor: 1.12,
   },
-} as const;
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Dynamic Body Shape Detection & Ratio Adjustment                            */
+/*  Adapts multipliers based on actual observed proportions instead of          */
+/*  assuming every person matches the population average                        */
+/* -------------------------------------------------------------------------- */
+
+function computeDynamicRatios(
+  front: Landmark[],
+  gender: BodyGender,
+  frontW: number,
+  frontH: number
+): BodyRatioSet {
+  const base: BodyRatioSet = { ...BASE_RATIOS[gender] };
+
+  const shoulderPx = dist2D(front[L.LEFT_SHOULDER], front[L.RIGHT_SHOULDER], frontW, frontH);
+  const hipPx = dist2D(front[L.LEFT_HIP], front[L.RIGHT_HIP], frontW, frontH);
+
+  if (shoulderPx <= 0 || hipPx <= 0) return base;
+
+  const shoulderToHipRatio = shoulderPx / hipPx;
+
+  if (gender === "female") {
+    // Pear shape: wider hips relative to shoulders
+    if (shoulderToHipRatio < 0.95) {
+      const intensity = Math.min(0.15, (0.95 - shoulderToHipRatio) * 1.0);
+      base.hipsFromHipWidth += intensity;
+      base.hipHalfWidthRatio += intensity * 0.2;
+      base.hipDepthFactor += intensity * 0.4;
+      base.bustFromShoulder -= intensity * 0.3;
+      base.thighWidthFromHip += intensity * 0.15;
+    }
+    // Inverted triangle: wide shoulders, narrower hips
+    if (shoulderToHipRatio > 1.10) {
+      const intensity = Math.min(0.12, (shoulderToHipRatio - 1.10) * 0.8);
+      base.bustFromShoulder += intensity;
+      base.chestFromShoulder += intensity;
+      base.hipsFromHipWidth -= intensity;
+      base.hipHalfWidthRatio -= intensity * 0.15;
+    }
+    // Hourglass: balanced shoulders and hips with defined waist
+    if (shoulderToHipRatio >= 0.95 && shoulderToHipRatio <= 1.05) {
+      base.bustFromShoulder += 0.05;
+      base.hipsFromHipWidth += 0.05;
+      base.waistFromHipWidth -= 0.05;
+      base.waistHalfWidthRatio -= 0.02;
+    }
+  } else {
+    // Male: V-shape (broad shoulders) vs rectangular
+    if (shoulderToHipRatio > 1.15) {
+      const intensity = Math.min(0.10, (shoulderToHipRatio - 1.15) * 0.7);
+      base.bustFromShoulder += intensity;
+      base.chestFromShoulder += intensity;
+      base.waistFromHipWidth -= intensity * 0.5;
+    }
+    // Stocky build: shoulders close to hips
+    if (shoulderToHipRatio < 1.0) {
+      const intensity = Math.min(0.08, (1.0 - shoulderToHipRatio) * 0.6);
+      base.waistFromHipWidth += intensity;
+      base.hipsFromHipWidth += intensity;
+      base.thighWidthFromHip += intensity * 0.1;
+    }
+  }
+
+  // Clamp all circumference multipliers to sane ranges
+  base.bustFromShoulder = Math.max(2.0, Math.min(3.2, base.bustFromShoulder));
+  base.chestFromShoulder = Math.max(2.0, Math.min(3.2, base.chestFromShoulder));
+  base.waistFromHipWidth = Math.max(2.0, Math.min(3.0, base.waistFromHipWidth));
+  base.hipsFromHipWidth = Math.max(2.0, Math.min(3.2, base.hipsFromHipWidth));
+
+  return base;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Side photo depth estimation                                                */
+/*  In a true side view, left/right landmarks collapse to the same point.      */
+/*  We measure the horizontal extent of the body silhouette instead.           */
+/* -------------------------------------------------------------------------- */
+
+function estimateSideDepth(
+  side: Landmark[],
+  sideW: number,
+  sideScale: number,
+  level: "bust" | "waist" | "hip"
+): number {
+  let landmarks: Landmark[];
+
+  if (level === "bust") {
+    // Use shoulder, elbow, and nose for front-to-back chest depth
+    landmarks = [side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], side[L.NOSE], side[L.LEFT_ELBOW]];
+  } else if (level === "hip") {
+    landmarks = [side[L.LEFT_HIP], side[L.RIGHT_HIP], side[L.LEFT_KNEE]];
+  } else {
+    // Waist: use shoulder and hip midpoints
+    landmarks = [side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], side[L.LEFT_HIP], side[L.RIGHT_HIP]];
+  }
+
+  const validLandmarks = landmarks.filter(l => l && (l.visibility ?? 0) > 0.3);
+  if (validLandmarks.length < 2) return 0; // signal to use fallback
+
+  const xs = validLandmarks.map(l => l.x * sideW);
+  const depthPx = Math.max(...xs) - Math.min(...xs);
+  const depthCm = depthPx * sideScale;
+
+  // If depth is unreasonably small, the side photo may not be a true profile
+  return depthCm >= 12 ? depthCm : 0; // 0 signals fallback
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cross-validation: nudge measurements that violate anatomical rules         */
+/* -------------------------------------------------------------------------- */
+
+function crossValidateAndNudge(
+  m: Record<string, number>,
+  gender: BodyGender
+): Record<string, number> {
+  const r = { ...m };
+
+  // Rule 1: Bust should be >= waist
+  if (r.bust < r.waist) {
+    const avg = (r.bust + r.waist) / 2;
+    r.bust = avg + 2;
+    r.waist = avg - 2;
+  }
+
+  // Rule 2: Hips >= waist for females (typically 5-15cm larger)
+  if (gender === "female" && r.hips < r.waist) {
+    r.hips = r.waist + 4;
+  }
+
+  // Rule 3: Thigh > knee > calf > ankle (taper rule)
+  if (r.thigh <= r.knee) {
+    const avg = (r.thigh + r.knee) / 2;
+    r.thigh = avg + 1;
+    r.knee = avg - 1;
+  }
+  if (r.knee <= r.calf) {
+    r.calf = r.knee - 2;
+  }
+  if (r.calf <= r.ankle) {
+    r.ankle = r.calf - 2;
+  }
+
+  // Rule 4: Chest within 5cm of bust
+  if (Math.abs(r.chest - r.bust) > 5) {
+    r.chest = r.bust - 1;
+  }
+
+  // Rule 5: Front length should be 88-100% of back length
+  const fbRatio = r.frontLength / r.backLength;
+  if (fbRatio > 1.0) {
+    r.frontLength = r.backLength * 0.95;
+  } else if (fbRatio < 0.85) {
+    r.frontLength = r.backLength * 0.92;
+  }
+
+  return r;
+}
 
 /* ---- Math helpers ---- */
 function dist2D(a: Landmark, b: Landmark, w: number, h: number): number {
@@ -350,14 +514,27 @@ export function calculateMeasurements(
   sideH?: number,
   gender: BodyGender = "female"
 ): MeasurementResult {
-  const R = BODY_RATIOS[gender];
+  const R = computeDynamicRatios(front, gender, frontW, frontH);
   const ranges = getPlausibleRanges(heightCm, gender);
 
   /* ---- Scale factor from known height ---- */
   const noseY = front[L.NOSE].y;
   const shoulderMidY = midY(front[L.LEFT_SHOULDER], front[L.RIGHT_SHOULDER]);
-  // Estimate top of head (above nose by ~55% of nose-to-shoulder distance)
-  const headTopY = Math.max(0, noseY - (shoulderMidY - noseY) * 0.55);
+
+  // Improved head-top estimation using ear landmarks
+  const leftEarY = front[L.LEFT_EAR]?.y ?? noseY;
+  const rightEarY = front[L.RIGHT_EAR]?.y ?? noseY;
+  const earMidY = (leftEarY + rightEarY) / 2;
+  const earVisibility = Math.max(
+    front[L.LEFT_EAR]?.visibility ?? 0,
+    front[L.RIGHT_EAR]?.visibility ?? 0
+  );
+  // Ears are at roughly mid-head height. Crown is ~2.2x the nose-to-ear distance above nose.
+  const noseToEarDist = Math.abs(noseY - earMidY);
+  const headAboveNose = (earVisibility > 0.3 && noseToEarDist > 0.005)
+    ? noseToEarDist * 2.2
+    : (shoulderMidY - noseY) * 0.55; // fallback to old method
+  const headTopY = Math.max(0, noseY - headAboveNose);
   // Feet = lowest visible point
   const feetY = Math.max(
     front[L.LEFT_ANKLE].y,
@@ -399,8 +576,29 @@ export function calculateMeasurements(
   const inseam = clampMeasurement(cm((leftInseam + rightInseam) / 2), ranges.inseam.min, ranges.inseam.max);
 
   /* ---- Back / front length (shoulder midpoint → waist estimate) ---- */
-  const waistRatio = gender === "female" ? 0.53 : 0.55; // Women: waist sits slightly higher
+  // Improved waist position: use elbow Y as reference when available
+  // At rest, elbows typically align near the natural waist
+  let waistRatio = gender === "female" ? 0.53 : 0.55;
   const hipMidY = midY(front[L.LEFT_HIP], front[L.RIGHT_HIP]);
+  if (side) {
+    const elbowY = midY(
+      side[L.LEFT_ELBOW] ?? front[L.LEFT_ELBOW],
+      side[L.RIGHT_ELBOW] ?? front[L.RIGHT_ELBOW]
+    );
+    const sideShoulderY = midY(
+      side[L.LEFT_SHOULDER] ?? front[L.LEFT_SHOULDER],
+      side[L.RIGHT_SHOULDER] ?? front[L.RIGHT_SHOULDER]
+    );
+    const sideHipY = midY(
+      side[L.LEFT_HIP] ?? front[L.LEFT_HIP],
+      side[L.RIGHT_HIP] ?? front[L.RIGHT_HIP]
+    );
+    if (elbowY > sideShoulderY && elbowY < sideHipY) {
+      // Elbow typically aligns slightly below the waist
+      const elbowRatio = (elbowY - sideShoulderY) / (sideHipY - sideShoulderY);
+      waistRatio = Math.max(0.40, Math.min(0.65, elbowRatio - 0.03));
+    }
+  }
   const waistY = shoulderMidY + (hipMidY - shoulderMidY) * waistRatio;
   const backLengthPx = (waistY - shoulderMidY) * frontH;
   const backLength = clampMeasurement(
@@ -425,19 +623,32 @@ export function calculateMeasurements(
     // Use both views for elliptical circumference (most accurate)
     const sideNoseY = side[L.NOSE].y;
     const sideShouldMidY = midY(side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER]);
-    const sideHeadTopY = Math.max(0, sideNoseY - (sideShouldMidY - sideNoseY) * 0.55);
+    const sideEarMidY = ((side[L.LEFT_EAR]?.y ?? sideNoseY) + (side[L.RIGHT_EAR]?.y ?? sideNoseY)) / 2;
+    const sideEarVis = Math.max(side[L.LEFT_EAR]?.visibility ?? 0, side[L.RIGHT_EAR]?.visibility ?? 0);
+    const sideNoseToEar = Math.abs(sideNoseY - sideEarMidY);
+    const sideHeadAbove = (sideEarVis > 0.3 && sideNoseToEar > 0.005)
+      ? sideNoseToEar * 2.2
+      : (sideShouldMidY - sideNoseY) * 0.55;
+    const sideHeadTopY = Math.max(0, sideNoseY - sideHeadAbove);
     const sideFeetY = Math.max(side[L.LEFT_ANKLE].y, side[L.RIGHT_ANKLE].y);
     const sideBodyPx = (sideFeetY - sideHeadTopY) * sideH;
     const sideScale = sideBodyPx > 0 ? heightCm / sideBodyPx : scale;
-    const sCm = (px: number) => px * sideScale;
 
-    // Side body depth at chest level
-    const sideShoulderWidthPx = dist2D(side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], sideW, sideH);
-    const chestDepthCm = sCm(sideShoulderWidthPx) * R.chestDepthFactor;
+    // Improved side depth: measure horizontal body extent at each level
+    let chestDepthCm = estimateSideDepth(side, sideW, sideScale, "bust");
+    let hipDepthCm = estimateSideDepth(side, sideW, sideScale, "hip");
 
-    // Side body depth at hip level
-    const sideHipWidthPx = dist2D(side[L.LEFT_HIP], side[L.RIGHT_HIP], sideW, sideH);
-    const hipDepthCm = sCm(sideHipWidthPx) * R.hipDepthFactor;
+    // Fallback to old factor-based method if side depth is unreliable
+    if (chestDepthCm <= 0) {
+      const sideShoulderWidthPx = dist2D(side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], sideW, sideH);
+      chestDepthCm = sideShoulderWidthPx * sideScale * R.chestDepthFactor;
+      chestDepthCm = Math.max(chestDepthCm, 18); // minimum realistic chest depth
+    }
+    if (hipDepthCm <= 0) {
+      const sideHipWidthPx = dist2D(side[L.LEFT_HIP], side[L.RIGHT_HIP], sideW, sideH);
+      hipDepthCm = sideHipWidthPx * sideScale * R.hipDepthFactor;
+      hipDepthCm = Math.max(hipDepthCm, 18);
+    }
 
     const waistDepthCm = (chestDepthCm + hipDepthCm) / 2 * R.waistDepthFactor;
 
@@ -490,9 +701,14 @@ export function calculateMeasurements(
   const wristWidthPx = dist2D(front[L.LEFT_WRIST], front[L.RIGHT_WRIST], frontW, frontH);
   const wrist = clampMeasurement(cm(wristWidthPx) * R.wristFactor, ranges.wrist.min, ranges.wrist.max);
 
-  /* ---- Weight estimate (gender-calibrated for Nigerian population) ---- */
+  /* ---- Weight estimate (uses waist-to-height ratio for accuracy) ---- */
   const heightM = heightCm / 100;
-  const weight = R.averageBMI * heightM * heightM;
+  const waistToHeightRatio = waist / heightCm;
+  // Adjust BMI estimate based on actual waist circumference relative to height
+  // Average waist-to-height ratio is ~0.45; deviation shifts BMI estimate
+  const bmiAdjustment = (waistToHeightRatio - 0.45) * 15;
+  const estimatedBMI = R.averageBMI + bmiAdjustment;
+  const weight = clampMeasurement(estimatedBMI * heightM * heightM, 35, 200);
 
   /* ---- Confidence score ---- */
   const keyIndices = [
@@ -511,26 +727,34 @@ export function calculateMeasurements(
   // Full model gives higher base confidence
   const confidence = Math.min(0.95, Math.max(0.55, avgVisibility * 0.85 + sideBonus));
 
+  // Cross-validate and nudge anatomically inconsistent measurements
+  const raw = {
+    bust, waist, hips, shoulder, armLength, inseam, neck, chest,
+    backLength, frontLength, sleeveLength, wrist, thigh, knee, calf, ankle,
+    height: heightCm, weight,
+  };
+  const validated = crossValidateAndNudge(raw, gender);
+
   return {
     measurements: {
-      bust: round1(bust),
-      waist: round1(waist),
-      hips: round1(hips),
-      shoulder: round1(shoulder),
-      armLength: round1(armLength),
-      inseam: round1(inseam),
-      neck: round1(neck),
-      chest: round1(chest),
-      backLength: round1(backLength),
-      frontLength: round1(frontLength),
-      sleeveLength: round1(sleeveLength),
-      wrist: round1(wrist),
-      thigh: round1(thigh),
-      knee: round1(knee),
-      calf: round1(calf),
-      ankle: round1(ankle),
+      bust: round1(validated.bust),
+      waist: round1(validated.waist),
+      hips: round1(validated.hips),
+      shoulder: round1(validated.shoulder),
+      armLength: round1(validated.armLength),
+      inseam: round1(validated.inseam),
+      neck: round1(validated.neck),
+      chest: round1(validated.chest),
+      backLength: round1(validated.backLength),
+      frontLength: round1(validated.frontLength),
+      sleeveLength: round1(validated.sleeveLength),
+      wrist: round1(validated.wrist),
+      thigh: round1(validated.thigh),
+      knee: round1(validated.knee),
+      calf: round1(validated.calf),
+      ankle: round1(validated.ankle),
       height: round1(heightCm),
-      weight: round1(weight),
+      weight: round1(validated.weight),
     },
     confidence: round1(confidence),
     landmarkQuality: round1(avgVisibility),

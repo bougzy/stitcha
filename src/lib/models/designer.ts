@@ -22,6 +22,8 @@ export interface IDesigner extends Document {
   avatar?: string;
   specialties: string[];
   subscription: "free" | "pro" | "business";
+  subscriptionExpiry?: Date;
+  paystackCustomerId?: string;
   role: DesignerRole;
   teamOwnerId?: string;
   ownerPin?: string;
@@ -51,6 +53,8 @@ const DesignerSchema = new Schema<IDesigner>(
     avatar: { type: String },
     specialties: [{ type: String }],
     subscription: { type: String, enum: ["free", "pro", "business"], default: "free" },
+    subscriptionExpiry: { type: Date },
+    paystackCustomerId: { type: String },
     role: { type: String, enum: ["owner", "manager", "apprentice"], default: "owner" },
     teamOwnerId: { type: Schema.Types.ObjectId, ref: "Designer" },
     ownerPin: { type: String, select: false },

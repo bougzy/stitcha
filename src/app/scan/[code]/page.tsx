@@ -23,7 +23,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn, measurementToInches } from "@/lib/utils";
 import {
   initPoseLandmarker,
   detectLandmarks,
@@ -152,6 +152,7 @@ export default function ClientScanPage() {
   const [manualMeasurements, setManualMeasurements] = useState<Record<string, string>>({});
   const [deviceChecks, setDeviceChecks] = useState({ lighting: true, camera: true });
   const [plausibilityWarnings, setPlausibilityWarnings] = useState<MeasurementWarning[]>([]);
+  const [displayUnit, setDisplayUnit] = useState<"cm" | "in">("cm");
   const [photoQualityIssues, setPhotoQualityIssues] = useState<string[]>([]);
   const [analyzeStep, setAnalyzeStep] = useState(0);
 
@@ -1681,9 +1682,17 @@ export default function ClientScanPage() {
               transition={{ delay: 0.5 }}
               className="mt-2 w-full rounded-2xl border border-green-200/40 bg-green-50/30 p-5 backdrop-blur-sm"
             >
-              <p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-wider text-green-600/70">
-                Your Measurements
-              </p>
+              <div className="mb-3 flex items-center justify-center gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-green-600/70">
+                  Your Measurements
+                </p>
+                <button
+                  onClick={() => setDisplayUnit(u => u === "cm" ? "in" : "cm")}
+                  className="rounded-full border border-green-200/40 bg-white/60 px-2 py-0.5 text-[10px] font-medium text-[#1A1A2E]/60 transition-colors hover:bg-white/80"
+                >
+                  {displayUnit === "cm" ? "Show inches" : "Show cm"}
+                </button>
+              </div>
               <div className="grid grid-cols-3 gap-3 text-center">
                 {[
                   { label: "Bust", key: "bust" },
@@ -1697,7 +1706,9 @@ export default function ClientScanPage() {
                     <p className="text-xs text-[#1A1A2E]/40">{m.label}</p>
                     <p className="mt-0.5 text-sm font-semibold text-green-600">
                       {measurementResult?.measurements[m.key]
-                        ? `${measurementResult.measurements[m.key]} cm`
+                        ? displayUnit === "cm"
+                          ? `${measurementResult.measurements[m.key]} cm`
+                          : `${measurementToInches(measurementResult.measurements[m.key])} in`
                         : "--"}
                     </p>
                   </div>
