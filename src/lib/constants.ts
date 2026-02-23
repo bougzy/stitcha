@@ -1,6 +1,6 @@
 export const APP_NAME = "Stitcha";
 export const APP_DESCRIPTION = "AI-powered body measurement platform for fashion designers";
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://stitcha.vercel.app";
 
 export const MEASUREMENT_TYPES = [
   { key: "bust", label: "Bust", unit: "cm" },

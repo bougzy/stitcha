@@ -69,7 +69,7 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "stitcha-app-secret-key-2024-production-ready",
   debug: process.env.NODE_ENV === "development",
 };
 

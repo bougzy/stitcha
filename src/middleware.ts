@@ -22,7 +22,7 @@ export async function middleware(request: NextRequest) {
 
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: process.env.NEXTAUTH_SECRET || "stitcha-app-secret-key-2024-production-ready",
   });
 
   // Redirect authenticated users away from auth pages

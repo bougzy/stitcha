@@ -48,6 +48,10 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL || "https://stitcha.vercel.app",
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || "stitcha-app-secret-key-2024-production-ready",
+  },
   turbopack: {},
   images: {
     formats: ["image/webp", "image/avif"],

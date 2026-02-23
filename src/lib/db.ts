@@ -1,12 +1,8 @@
 import mongoose from "mongoose";
 
-function getMongoUri(): string {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("Please define the MONGODB_URI environment variable");
-  }
-  return uri;
-}
+const MONGODB_URI =
+  process.env.MONGODB_URI ||
+  "mongodb+srv://stitcha:stitcha@stitcha.v5hhstn.mongodb.net/stitcha";
 
 interface MongooseCache {
   conn: typeof mongoose | null;
@@ -34,7 +30,7 @@ export async function connectDB(): Promise<typeof mongoose> {
       bufferCommands: false,
       maxPoolSize: 10,
     };
-    cached.promise = mongoose.connect(getMongoUri(), opts);
+    cached.promise = mongoose.connect(MONGODB_URI, opts);
   }
 
   try {

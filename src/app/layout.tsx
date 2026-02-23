@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Stitcha" }],
   creator: "Stitcha",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://stitcha.vercel.app"),
   openGraph: {
     type: "website",
     locale: "en_NG",

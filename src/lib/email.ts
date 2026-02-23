@@ -11,7 +11,7 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@stitcha.app";
 const FROM_NAME = process.env.FROM_NAME || "Stitcha";
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://stitcha.vercel.app";
 
 const isConfigured = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
 
