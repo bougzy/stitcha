@@ -3,10 +3,12 @@
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft,
+  CreditCard,
   LayoutDashboard,
   Package,
   ScanLine,
   Settings,
+  ShieldCheck,
   Users,
   X,
   Sparkles,
@@ -17,6 +19,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 /* -------------------------------------------------------------------------- */
 /*  Navigation items                                                          */
@@ -32,8 +35,11 @@ const navItems = [
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "Rank", href: "/rank", icon: Trophy },
   { label: "Scan", href: "/scan", icon: ScanLine },
+  { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: Settings },
 ] as const;
+
+const adminNavItem = { label: "Admin", href: "/admin", icon: ShieldCheck } as const;
 
 /* -------------------------------------------------------------------------- */
 /*  Sidebar component                                                         */
@@ -53,6 +59,9 @@ export function Sidebar({
   onToggleCollapse,
 }: SidebarProps) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === "admin";
+  const allNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
 
   return (
     <>
@@ -129,7 +138,7 @@ export function Sidebar({
         {/* ---- Navigation ---- */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
-            {navItems.map(({ label, href, icon: Icon }) => {
+            {allNavItems.map(({ label, href, icon: Icon }) => {
               const isActive =
                 href === "/dashboard"
                   ? pathname === "/dashboard"

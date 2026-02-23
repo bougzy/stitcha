@@ -1,4 +1,4 @@
-export type DesignerRole = "owner" | "manager" | "apprentice";
+export type DesignerRole = "owner" | "manager" | "apprentice" | "admin";
 
 export interface LifetimeCounts {
   totalClientsCreated: number;

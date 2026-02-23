@@ -61,14 +61,14 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        token.role = (((user as any).role as string) || "owner") as "owner" | "manager" | "apprentice";
+        token.role = (((user as any).role as string) || "owner") as "owner" | "manager" | "apprentice" | "admin";
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = (token.role || "owner") as "owner" | "manager" | "apprentice";
+        session.user.role = (token.role || "owner") as "owner" | "manager" | "apprentice" | "admin";
       }
       return session;
     },

@@ -6,7 +6,7 @@ export interface ILifetimeCounts {
   totalOrdersCreated: number;
 }
 
-export type DesignerRole = "owner" | "manager" | "apprentice";
+export type DesignerRole = "owner" | "manager" | "apprentice" | "admin";
 
 export interface IDesigner extends Document {
   name: string;
@@ -55,7 +55,7 @@ const DesignerSchema = new Schema<IDesigner>(
     subscription: { type: String, enum: ["free", "pro", "business"], default: "free" },
     subscriptionExpiry: { type: Date },
     paystackCustomerId: { type: String },
-    role: { type: String, enum: ["owner", "manager", "apprentice"], default: "owner" },
+    role: { type: String, enum: ["owner", "manager", "apprentice", "admin"], default: "owner" },
     teamOwnerId: { type: Schema.Types.ObjectId, ref: "Designer" },
     ownerPin: { type: String, select: false },
     lifetimeCounts: {

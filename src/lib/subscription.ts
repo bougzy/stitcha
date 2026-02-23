@@ -83,6 +83,14 @@ export function checkSubscriptionLimit(
 /* -------------------------------------------------------------------------- */
 
 const ROLE_PERMISSIONS: Record<DesignerRole, Set<string>> = {
+  admin: new Set([
+    "view_clients", "create_client", "edit_client", "delete_client",
+    "view_orders", "create_order", "edit_order", "delete_order",
+    "record_payment", "delete_payment", "view_finances",
+    "manage_team", "manage_settings", "export_data",
+    "use_ai_scan", "view_measurements",
+    "view_admin", "manage_designers", "view_analytics",
+  ]),
   owner: new Set([
     "view_clients", "create_client", "edit_client", "delete_client",
     "view_orders", "create_order", "edit_order", "delete_order",
