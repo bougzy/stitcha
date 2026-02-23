@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { SUBSCRIPTION_PLANS, CREDIT_PACKS } from "@/lib/constants";
@@ -34,6 +35,8 @@ import {
   Ruler,
   Package,
   TrendingUp,
+  Menu,
+  X,
 } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
@@ -212,6 +215,8 @@ const stats = [
 /* -------------------------------------------------------------------------- */
 
 export default function LandingPage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#FAFAF8]">
       {/* ---- Background Mesh Gradient ---- */}
@@ -248,18 +253,72 @@ export default function LandingPage() {
             <a href="#pricing" className="transition-colors hover:text-[#C75B39]">Pricing</a>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link href="/login">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link href="/login" className="hidden sm:block">
               <Button variant="ghost" size="sm">Sign In</Button>
             </Link>
-            <Link href="/register">
+            <Link href="/register" className="hidden sm:block">
               <Button size="sm">
                 Get Started Free
                 <ArrowRight className="ml-1 h-3.5 w-3.5" />
               </Button>
             </Link>
+            {/* Mobile hamburger */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#1A1A2E]/10 bg-white/60 backdrop-blur-sm md:hidden"
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? (
+                <X className="h-5 w-5 text-[#1A1A2E]" />
+              ) : (
+                <Menu className="h-5 w-5 text-[#1A1A2E]" />
+              )}
+            </button>
           </div>
         </nav>
+
+        {/* Mobile menu dropdown */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
+              className="overflow-hidden border-b border-[#1A1A2E]/5 bg-white/90 backdrop-blur-xl md:hidden"
+            >
+              <div className="mx-auto max-w-7xl space-y-1 px-4 pb-5 pt-2">
+                {[
+                  { label: "Features", href: "#features" },
+                  { label: "How It Works", href: "#how-it-works" },
+                  { label: "AI Scanning", href: "#scanning" },
+                  { label: "Pricing", href: "#pricing" },
+                ].map((link) => (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="block rounded-lg px-3 py-2.5 text-sm font-medium text-[#1A1A2E]/70 transition-colors active:bg-[#C75B39]/5"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+                <div className="mt-3 flex gap-3 border-t border-[#1A1A2E]/5 pt-4">
+                  <Link href="/login" className="flex-1" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="outline" size="sm" className="w-full">Sign In</Button>
+                  </Link>
+                  <Link href="/register" className="flex-1" onClick={() => setMobileMenuOpen(false)}>
+                    <Button size="sm" className="w-full">
+                      Get Started
+                      <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.header>
 
       {/* ================================================================== */}
@@ -410,7 +469,7 @@ export default function LandingPage() {
                 key={feature.title}
                 variants={scaleIn}
                 transition={{ duration: 0.5 }}
-                className="group relative overflow-hidden rounded-2xl border border-white/40 bg-white/65 p-8 shadow-[0_8px_32px_rgba(26,26,46,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:bg-white/80 hover:shadow-[0_16px_48px_rgba(26,26,46,0.1)]"
+                className="group relative overflow-hidden rounded-2xl border border-white/40 bg-white/65 p-6 shadow-[0_8px_32px_rgba(26,26,46,0.06)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:bg-white/80 hover:shadow-[0_16px_48px_rgba(26,26,46,0.1)] sm:p-8"
               >
                 <div
                   className={`mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${feature.color} shadow-md`}
@@ -494,7 +553,7 @@ export default function LandingPage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-12 rounded-2xl border border-[#C75B39]/15 bg-gradient-to-br from-[#C75B39]/[0.04] to-[#D4A853]/[0.03] p-8 sm:p-10"
+            className="mt-12 rounded-2xl border border-[#C75B39]/15 bg-gradient-to-br from-[#C75B39]/[0.04] to-[#D4A853]/[0.03] p-6 sm:p-10"
           >
             <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
               <div>
@@ -909,7 +968,7 @@ export default function LandingPage() {
                   key={plan.id}
                   variants={scaleIn}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
-                  className={`relative overflow-hidden rounded-2xl border p-8 transition-all duration-300 hover:-translate-y-1 ${
+                  className={`relative overflow-hidden rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 sm:p-8 ${
                     isPopular
                       ? "border-[#C75B39]/30 bg-white/80 shadow-[0_16px_48px_rgba(199,91,57,0.12)] backdrop-blur-xl"
                       : "border-white/40 bg-white/65 shadow-[0_8px_32px_rgba(26,26,46,0.06)] backdrop-blur-xl hover:shadow-[0_16px_48px_rgba(26,26,46,0.1)]"
@@ -1009,10 +1068,10 @@ export default function LandingPage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.6 }}
-            className="relative overflow-hidden rounded-3xl border border-white/30 bg-gradient-to-br from-[#C75B39] to-[#933a22] p-12 text-center shadow-2xl sm:p-16"
+            className="relative overflow-hidden rounded-3xl border border-white/30 bg-gradient-to-br from-[#C75B39] to-[#933a22] p-8 text-center shadow-2xl sm:p-12 lg:p-16"
           >
-            <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
-            <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-[#D4A853]/20 blur-2xl" />
+            <div className="pointer-events-none absolute -top-12 -right-12 h-32 w-32 rounded-full bg-white/10 blur-2xl sm:-top-16 sm:-right-16 sm:h-48 sm:w-48" />
+            <div className="pointer-events-none absolute -bottom-12 -left-12 h-32 w-32 rounded-full bg-[#D4A853]/20 blur-2xl sm:-bottom-16 sm:-left-16 sm:h-48 sm:w-48" />
 
             <h2 className="relative text-3xl font-bold text-white sm:text-4xl">
               Ready to Deliver Perfect Fits?
