@@ -24,6 +24,7 @@ export interface IDesigner extends Document {
   subscription: "free" | "pro" | "business";
   role: DesignerRole;
   teamOwnerId?: string;
+  ownerPin?: string;
   lifetimeCounts: ILifetimeCounts;
   isOnboarded: boolean;
   isVerified: boolean;
@@ -52,6 +53,7 @@ const DesignerSchema = new Schema<IDesigner>(
     subscription: { type: String, enum: ["free", "pro", "business"], default: "free" },
     role: { type: String, enum: ["owner", "manager", "apprentice"], default: "owner" },
     teamOwnerId: { type: Schema.Types.ObjectId, ref: "Designer" },
+    ownerPin: { type: String, select: false },
     lifetimeCounts: {
       totalClientsCreated: { type: Number, default: 0 },
       totalScansUsed: { type: Number, default: 0 },

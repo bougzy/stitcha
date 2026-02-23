@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Order } from "@/lib/models/order";
+import { Designer } from "@/lib/models/designer";
 import { logActivity } from "@/lib/models/activity-log";
 
 /* -------------------------------------------------------------------------- */
@@ -93,14 +94,19 @@ export async function POST(
       metadata: { amount, method: method || "cash", totalPaid, orderTitle: order.title },
     });
 
+    // Blind Receipting: staff cannot see reconciled balance
+    const designer = await Designer.findById(designerId).select("role").lean();
+    const isOwner = !designer || designer.role === "owner";
+
     return NextResponse.json({
       success: true,
       message: "Payment recorded successfully",
       data: {
         payment: JSON.parse(JSON.stringify(payment)),
-        totalPaid,
-        balance: order.price - totalPaid,
-        paymentStatus: order.paymentStatus,
+        totalPaid: isOwner ? totalPaid : undefined,
+        balance: isOwner ? order.price - totalPaid : undefined,
+        paymentStatus: isOwner ? order.paymentStatus : undefined,
+        blindReceipt: !isOwner,
       },
     });
   } catch (error) {
@@ -143,6 +149,15 @@ export async function DELETE(
     }
 
     await connectDB();
+
+    // Zero-delete policy: only owners can remove payments
+    const designer = await Designer.findById(designerId).select("role").lean();
+    if (designer && designer.role !== "owner") {
+      return NextResponse.json(
+        { success: false, error: "Only the account owner can remove payments. Request a correction from your Oga." },
+        { status: 403 }
+      );
+    }
 
     const order = await Order.findOne({ _id: id, designerId });
     if (!order) {

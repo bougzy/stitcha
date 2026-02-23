@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -27,6 +28,8 @@ import {
   X,
   MessageCircle,
   AlertTriangle,
+  Lock,
+  ShieldAlert,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -116,12 +119,20 @@ function getDueDateCountdown(dueDate?: string) {
 export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const orderId = params.id as string;
+
+  // Role-based access control ("Oga Protocol")
+  const userRole = (session?.user as Record<string, unknown>)?.role as string || "owner";
+  const isOwner = userRole === "owner";
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [correctionDialogOpen, setCorrectionDialogOpen] = useState(false);
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [submittingCorrection, setSubmittingCorrection] = useState(false);
   const [newStatus, setNewStatus] = useState<string>("");
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -491,8 +502,13 @@ export default function OrderDetailPage() {
         throw new Error(json.error || "Failed to record payment");
       }
 
-      const newTotalPaid = (order?.depositPaid || 0) + amount;
-      toast.success(`Payment of ${formatCurrency(amount)} recorded`);
+      // Blind Receipting: staff sees only "Payment recorded", no balance info
+      const newTotalPaid = isOwner ? (order?.depositPaid || 0) + amount : 0;
+      toast.success(
+        isOwner
+          ? `Payment of ${formatCurrency(amount)} recorded`
+          : `Payment of ${formatCurrency(amount)} recorded successfully`
+      );
       setShowPaymentForm(false);
       setPaymentAmount("");
       setPaymentMethod("cash");
@@ -526,6 +542,39 @@ export default function OrderDetailPage() {
       fetchOrder();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to remove payment");
+    }
+  };
+
+  /* ---- Request correction (staff only) ---- */
+  const handleRequestCorrection = async () => {
+    if (!correctionReason.trim()) {
+      toast.error("Please describe what needs to be corrected");
+      return;
+    }
+
+    try {
+      setSubmittingCorrection(true);
+      const res = await fetch(`/api/orders/${orderId}/correction-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: correctionReason,
+          type: "order_correction",
+        }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        throw new Error(json.error || "Failed to submit request");
+      }
+
+      toast.success("Correction request sent to account owner");
+      setCorrectionDialogOpen(false);
+      setCorrectionReason("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to submit request");
+    } finally {
+      setSubmittingCorrection(false);
     }
   };
 
@@ -677,14 +726,26 @@ export default function OrderDetailPage() {
                 <Edit className="h-3.5 w-3.5" />
                 Edit
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:bg-destructive/10"
-                onClick={() => setDeleteDialogOpen(true)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              {isOwner ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:bg-destructive/10"
+                  onClick={() => setDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-amber-600 hover:bg-amber-50"
+                  onClick={() => setCorrectionDialogOpen(true)}
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Request Correction
+                </Button>
+              )}
             </div>
           </div>
         </GlassCard>
@@ -867,7 +928,7 @@ export default function OrderDetailPage() {
                 )}
               </div>
 
-              {/* Summary */}
+              {/* Summary — Blind Receipting: staff only sees price, not balance */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between rounded-xl bg-[#C75B39]/5 px-4 py-3">
                   <span className="text-xs font-medium text-[#1A1A2E]/55">
@@ -877,55 +938,68 @@ export default function OrderDetailPage() {
                     {formatCurrency(order.price)}
                   </span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl bg-emerald-500/5 px-4 py-3">
-                  <span className="text-xs font-medium text-[#1A1A2E]/55">
-                    Total Paid
-                  </span>
-                  <span className="text-sm font-semibold text-emerald-600">
-                    {formatCurrency(order.depositPaid || 0)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl bg-[#D4A853]/10 px-4 py-3">
-                  <span className="text-xs font-medium text-[#1A1A2E]/55">
-                    Balance
-                  </span>
-                  <span
-                    className={cn(
-                      "text-sm font-semibold",
-                      balance > 0 ? "text-[#C75B39]" : "text-emerald-600"
-                    )}
-                  >
-                    {balance <= 0 ? (
-                      <span className="flex items-center gap-1">
-                        <Check className="h-3.5 w-3.5" /> Paid in full
+                {isOwner ? (
+                  <>
+                    <div className="flex items-center justify-between rounded-xl bg-emerald-500/5 px-4 py-3">
+                      <span className="text-xs font-medium text-[#1A1A2E]/55">
+                        Total Paid
                       </span>
-                    ) : (
-                      formatCurrency(balance)
-                    )}
-                  </span>
-                </div>
-
-                {/* Progress bar */}
-                <div className="pt-1">
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-[#1A1A2E]/6">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all duration-500",
-                        balance <= 0
-                          ? "bg-emerald-500"
-                          : (order.depositPaid || 0) > 0
-                          ? "bg-[#D4A853]"
-                          : "bg-[#1A1A2E]/10"
-                      )}
-                      style={{
-                        width: `${Math.min(100, ((order.depositPaid || 0) / order.price) * 100)}%`,
-                      }}
-                    />
+                      <span className="text-sm font-semibold text-emerald-600">
+                        {formatCurrency(order.depositPaid || 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-xl bg-[#D4A853]/10 px-4 py-3">
+                      <span className="text-xs font-medium text-[#1A1A2E]/55">
+                        Balance
+                      </span>
+                      <span
+                        className={cn(
+                          "text-sm font-semibold",
+                          balance > 0 ? "text-[#C75B39]" : "text-emerald-600"
+                        )}
+                      >
+                        {balance <= 0 ? (
+                          <span className="flex items-center gap-1">
+                            <Check className="h-3.5 w-3.5" /> Paid in full
+                          </span>
+                        ) : (
+                          formatCurrency(balance)
+                        )}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-xl bg-[#1A1A2E]/3 px-4 py-3">
+                    <Lock className="h-4 w-4 text-[#1A1A2E]/30" />
+                    <span className="text-xs font-medium text-[#1A1A2E]/45">
+                      Balance details visible to account owner only
+                    </span>
                   </div>
-                  <p className="mt-1 text-right text-[10px] text-[#1A1A2E]/35">
-                    {Math.round(((order.depositPaid || 0) / order.price) * 100)}% paid
-                  </p>
-                </div>
+                )}
+
+                {/* Progress bar — only visible to owner */}
+                {isOwner && (
+                  <div className="pt-1">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#1A1A2E]/6">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          balance <= 0
+                            ? "bg-emerald-500"
+                            : (order.depositPaid || 0) > 0
+                            ? "bg-[#D4A853]"
+                            : "bg-[#1A1A2E]/10"
+                        )}
+                        style={{
+                          width: `${Math.min(100, ((order.depositPaid || 0) / order.price) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-1 text-right text-[10px] text-[#1A1A2E]/35">
+                      {Math.round(((order.depositPaid || 0) / order.price) * 100)}% paid
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Payment history */}
@@ -967,13 +1041,16 @@ export default function OrderDetailPage() {
                             {p.note && ` — ${p.note}`}
                           </p>
                         </div>
-                        <button
-                          onClick={() => p._id && handleDeletePayment(p._id)}
-                          className="shrink-0 rounded p-1 text-[#1A1A2E]/20 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
-                          title="Remove payment"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
+                        {/* Zero-delete: only owners can remove payments */}
+                        {isOwner && (
+                          <button
+                            onClick={() => p._id && handleDeletePayment(p._id)}
+                            className="shrink-0 rounded p-1 text-[#1A1A2E]/20 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                            title="Remove payment"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1290,17 +1367,28 @@ export default function OrderDetailPage() {
         </Dialog>
 
         {/* Receipt Enforcement Dialog — appears after every payment */}
-        <Dialog open={!!receiptPrompt} onOpenChange={(open) => !open && setReceiptPrompt(null)}>
+        {/* Staff MUST send receipt (Forced External Audit) — no skip option */}
+        <Dialog
+          open={!!receiptPrompt}
+          onOpenChange={(open) => {
+            // Staff cannot dismiss this dialog without sending the receipt
+            if (!open && !isOwner) return;
+            if (!open) setReceiptPrompt(null);
+          }}
+        >
           <DialogContent>
-            <DialogClose />
+            {/* Only owners can close this dialog manually */}
+            {isOwner && <DialogClose />}
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <MessageCircle className="h-5 w-5 text-green-600" />
-                Send Payment Receipt
+                {isOwner ? "Send Payment Receipt" : "Send Receipt to Continue"}
               </DialogTitle>
               <DialogDescription>
-                A WhatsApp receipt builds trust and serves as proof of payment.
-                Always send receipts to protect both you and your client.
+                {isOwner
+                  ? "A WhatsApp receipt builds trust and serves as proof of payment. Always send receipts to protect both you and your client."
+                  : "You MUST send a WhatsApp receipt before continuing. This creates an external audit trail that protects you and the business."
+                }
               </DialogDescription>
             </DialogHeader>
             {receiptPrompt && order.client?.phone && (
@@ -1309,10 +1397,28 @@ export default function OrderDetailPage() {
                   <p className="text-sm font-semibold text-green-700">
                     {formatCurrency(receiptPrompt.amount)} received from {order.client?.name}
                   </p>
-                  <p className="text-xs text-green-600/70 mt-0.5">
-                    Total paid: {formatCurrency(receiptPrompt.newTotalPaid)} / {formatCurrency(order.price)}
-                  </p>
+                  {/* Blind Receipting: only owners see balance breakdown */}
+                  {isOwner ? (
+                    <p className="text-xs text-green-600/70 mt-0.5">
+                      Total paid: {formatCurrency(receiptPrompt.newTotalPaid)} / {formatCurrency(order.price)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-green-600/70 mt-0.5">
+                      Payment recorded — send receipt to confirm
+                    </p>
+                  )}
                 </div>
+
+                {/* Staff sees a warning that they can't skip */}
+                {!isOwner && (
+                  <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                    <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                    <p className="text-[11px] text-amber-700">
+                      Sending a receipt is mandatory for staff. This protects you and the Oga.
+                    </p>
+                  </div>
+                )}
+
                 <DialogFooter className="flex-col gap-2 sm:flex-col">
                   <Button
                     className="w-full gap-2"
@@ -1322,8 +1428,8 @@ export default function OrderDetailPage() {
                         order.client!.name,
                         order.title,
                         receiptPrompt.amount,
-                        receiptPrompt.newTotalPaid,
-                        order.price
+                        isOwner ? receiptPrompt.newTotalPaid : receiptPrompt.amount,
+                        isOwner ? order.price : receiptPrompt.amount
                       );
                       window.open(url, "_blank");
                       // Mark receipt as sent
@@ -1338,21 +1444,78 @@ export default function OrderDetailPage() {
                     <MessageCircle className="h-4 w-4" />
                     Send Receipt via WhatsApp
                   </Button>
-                  <button
-                    onClick={() => {
-                      toast.warning("Receipt not sent — flagged for follow-up", {
-                        description: "Skipping receipts may cause payment disputes",
-                      });
-                      setReceiptPrompt(null);
-                    }}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-50"
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Skip Receipt (Not Recommended)
-                  </button>
+                  {/* Only owners can skip — staff MUST send */}
+                  {isOwner && (
+                    <button
+                      onClick={() => {
+                        toast.warning("Receipt not sent — flagged for follow-up", {
+                          description: "Skipping receipts may cause payment disputes",
+                        });
+                        setReceiptPrompt(null);
+                      }}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Skip Receipt (Not Recommended)
+                    </button>
+                  )}
                 </DialogFooter>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Correction Request Dialog — staff only */}
+        <Dialog open={correctionDialogOpen} onOpenChange={setCorrectionDialogOpen}>
+          <DialogContent>
+            <DialogClose />
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-amber-600" />
+                Request Correction
+              </DialogTitle>
+              <DialogDescription>
+                Describe what needs to be corrected. The account owner (Oga)
+                will review and take action.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl bg-amber-50/50 border border-amber-200 px-4 py-3">
+                <p className="text-xs text-amber-700">
+                  Staff accounts cannot delete or modify critical order data.
+                  All correction requests are logged for accountability.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-[#1A1A2E]/55">
+                  What needs to be corrected?
+                </label>
+                <textarea
+                  value={correctionReason}
+                  onChange={(e) => setCorrectionReason(e.target.value)}
+                  placeholder="e.g., Wrong payment amount recorded, need to remove duplicate entry..."
+                  rows={3}
+                  className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#D4A853]/40 focus:ring-1 focus:ring-[#D4A853]/20 placeholder:text-[#1A1A2E]/30"
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setCorrectionDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleRequestCorrection}
+                  loading={submittingCorrection}
+                  disabled={!correctionReason.trim()}
+                  className="gap-2"
+                >
+                  <ShieldAlert className="h-4 w-4" />
+                  Submit Request
+                </Button>
+              </DialogFooter>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

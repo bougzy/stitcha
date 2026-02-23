@@ -43,6 +43,7 @@ export const authOptions: NextAuthOptions = {
           email: designer.email,
           name: designer.name,
           image: designer.avatar,
+          role: designer.role || "owner",
         };
       },
     }),
@@ -59,12 +60,15 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        token.role = (((user as any).role as string) || "owner") as "owner" | "manager" | "apprentice";
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id: string }).id = token.id as string;
+        session.user.id = token.id as string;
+        session.user.role = (token.role || "owner") as "owner" | "manager" | "apprentice";
       }
       return session;
     },

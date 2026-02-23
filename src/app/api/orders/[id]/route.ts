@@ -106,6 +106,11 @@ export async function PUT(
     const isInProgress = IN_PROGRESS_STATUSES.includes(existingOrder.status);
     const LOCKED_AFTER_IN_PROGRESS = ["price", "garmentType", "fabric", "clientId"];
 
+    // Price Lock: non-owners can NEVER change the price (requires owner override PIN)
+    const designer = await Designer.findById(designerId).select("role").lean();
+    const isOwner = !designer || designer.role === "owner";
+    const OWNER_ONLY_FIELDS = ["price"];
+
     // Build update object - allow partial updates including status changes
     const allowedFields = [
       "title",
@@ -126,6 +131,10 @@ export async function PUT(
         // Enforce read-only after in-progress
         if (isInProgress && LOCKED_AFTER_IN_PROGRESS.includes(field)) {
           continue; // silently skip locked fields
+        }
+        // Price Lock: only owners can modify price
+        if (!isOwner && OWNER_ONLY_FIELDS.includes(field)) {
+          continue; // silently skip owner-only fields
         }
         update[field] = body[field];
       }
@@ -228,11 +237,13 @@ export async function DELETE(
 
     await connectDB();
 
-    // Role check: only owners and managers can delete orders
+    // Zero-delete policy: ONLY owners can delete orders
     const designer = await Designer.findById(designerId).select("role").lean();
-    const roleCheck = checkRolePermission(designer?.role || "owner", "delete_order");
-    if (!roleCheck.allowed) {
-      return NextResponse.json({ success: false, error: roleCheck.message }, { status: 403 });
+    if (designer && designer.role !== "owner") {
+      return NextResponse.json(
+        { success: false, error: "Only the account owner (Oga) can delete orders. Use 'Request Correction' instead." },
+        { status: 403 }
+      );
     }
 
     // Soft-delete: mark as deleted instead of removing from DB

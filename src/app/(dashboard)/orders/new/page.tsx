@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Save, Scissors, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Lock, Save, Scissors, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -12,6 +13,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogClose,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { FabricCalculator } from "@/components/common/fabric-calculator";
 import { orderSchema, type OrderInput } from "@/lib/validations";
 import type { Client, Measurements } from "@/types";
@@ -40,18 +50,30 @@ const GARMENT_TYPES = [
 function NewOrderForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const preselectedClientId = searchParams.get("clientId");
   const editId = searchParams.get("edit");
   const isEditing = Boolean(editId);
+
+  // Role-based Price Lock ("Oga Protocol")
+  const userRole = (session?.user as Record<string, unknown>)?.role as string || "owner";
+  const isOwner = userRole === "owner";
 
   const [loading, setLoading] = useState(false);
   const [fetchingOrder, setFetchingOrder] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
+  const [priceUnlocked, setPriceUnlocked] = useState(false);
+  const [showPinDialog, setShowPinDialog] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [verifyingPin, setVerifyingPin] = useState(false);
 
   const [selectedClientMeasurements, setSelectedClientMeasurements] =
     useState<Measurements | null>(null);
   const [showFabricCalc, setShowFabricCalc] = useState(false);
+
+  // Price is locked for non-owners when editing (unless unlocked via PIN)
+  const isPriceLocked = isEditing && !isOwner && !priceUnlocked;
 
   const {
     register,
@@ -157,6 +179,38 @@ function NewOrderForm() {
     const selected = clients.find((c) => c._id === watchedClientId);
     setSelectedClientMeasurements(selected?.measurements || null);
   }, [watchedClientId, clients]);
+
+  /* ---- Owner Override PIN verification ---- */
+  const handleVerifyPin = async () => {
+    if (pinInput.length !== 4) {
+      toast.error("PIN must be exactly 4 digits");
+      return;
+    }
+
+    try {
+      setVerifyingPin(true);
+      const res = await fetch("/api/designer/pin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: pinInput }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        throw new Error(json.error || "Invalid PIN");
+      }
+
+      setPriceUnlocked(true);
+      setShowPinDialog(false);
+      setPinInput("");
+      toast.success("Price field unlocked by owner override");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Invalid PIN");
+      setPinInput("");
+    } finally {
+      setVerifyingPin(false);
+    }
+  };
 
   /* ---- Submit handler ---- */
   const onSubmit = async (data: OrderInput) => {
@@ -321,8 +375,11 @@ function NewOrderForm() {
               {/* Price and Deposit row */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="w-full space-y-1.5">
-                  <label className="block text-sm font-medium text-foreground">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                     Price (NGN)
+                    {isPriceLocked && (
+                      <Lock className="h-3.5 w-3.5 text-amber-500" />
+                    )}
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -333,10 +390,21 @@ function NewOrderForm() {
                       min="0"
                       step="100"
                       placeholder="0"
+                      disabled={isPriceLocked}
                       className="glass-input flex h-10 w-full rounded-lg pl-12 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                       {...register("price", { valueAsNumber: true })}
                     />
                   </div>
+                  {isPriceLocked && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPinDialog(true)}
+                      className="flex items-center gap-1.5 text-[11px] font-medium text-[#C75B39] transition-colors hover:text-[#C75B39]/80"
+                    >
+                      <Lock className="h-3 w-3" />
+                      Request Owner Override (PIN)
+                    </button>
+                  )}
                   {errors.price && (
                     <p className="text-xs text-destructive">
                       {errors.price.message}
@@ -404,6 +472,63 @@ function NewOrderForm() {
             </form>
           )}
         </GlassCard>
+
+        {/* Owner Override PIN Dialog */}
+        <Dialog open={showPinDialog} onOpenChange={setShowPinDialog}>
+          <DialogContent>
+            <DialogClose />
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-[#C75B39]" />
+                Owner Override Required
+              </DialogTitle>
+              <DialogDescription>
+                The price field is locked. Ask the account owner (Oga) to enter
+                their 4-digit PIN to authorize this change.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl bg-amber-50/50 border border-amber-200 px-4 py-3">
+                <p className="text-xs text-amber-700">
+                  Hand the phone to the Oga. Only the account owner knows this PIN.
+                </p>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-[#1A1A2E]/55">
+                  4-Digit Owner PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={pinInput}
+                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  placeholder="••••"
+                  className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-4 py-3 text-center text-2xl tracking-[0.5em] outline-none focus:border-[#C75B39]/40 focus:ring-1 focus:ring-[#C75B39]/20 placeholder:tracking-[0.3em]"
+                  autoFocus
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowPinDialog(false);
+                    setPinInput("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleVerifyPin}
+                  loading={verifyingPin}
+                  disabled={pinInput.length !== 4}
+                >
+                  Verify PIN
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageTransition>
   );
