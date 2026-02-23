@@ -146,6 +146,18 @@ export default function ClientScanPage() {
 
   const frontInputRef = useRef<HTMLInputElement>(null);
   const sideInputRef = useRef<HTMLInputElement>(null);
+  const poseLandmarkerRef = useRef<ReturnType<typeof initPoseLandmarker> | null>(null);
+
+  /* ---------------------------------------------------------------------- */
+  /*  Preload MediaPipe when user reaches review step                        */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (step === "review" && !poseLandmarkerRef.current) {
+      // Start loading the AI model in the background so it's ready on "Analyze"
+      poseLandmarkerRef.current = initPoseLandmarker();
+    }
+  }, [step]);
 
   /* ---------------------------------------------------------------------- */
   /*  Validate the scan link on mount                                        */
@@ -258,8 +270,10 @@ export default function ClientScanPage() {
       setAnalyzeProgress(0);
       setAnalyzeStatus("Loading AI measurement model...");
 
-      // Step 1: Initialize PoseLandmarker
-      const poseLandmarker = await initPoseLandmarker();
+      // Step 1: Initialize PoseLandmarker (may already be preloaded)
+      const poseLandmarker = poseLandmarkerRef.current
+        ? await poseLandmarkerRef.current
+        : await initPoseLandmarker();
       setAnalyzeProgress(20);
 
       // Step 2: Load and detect landmarks on front photo

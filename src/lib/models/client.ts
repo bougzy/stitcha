@@ -63,6 +63,7 @@ const ClientSchema = new Schema<IClient>(
 );
 
 ClientSchema.index({ designerId: 1, name: "text" });
+ClientSchema.index({ designerId: 1, createdAt: -1 });
 ClientSchema.index({ scanLink: 1 });
 ClientSchema.index({ shareCode: 1 });
 

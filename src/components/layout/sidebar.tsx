@@ -66,11 +66,11 @@ export function Sidebar({
       {/* Sidebar panel */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-40 flex h-full flex-col",
+          "fixed top-0 left-0 z-50 flex h-full flex-col",
           "border-r border-white/15 bg-white/70 backdrop-blur-xl",
           "shadow-[4px_0_24px_rgba(26,26,46,0.04)]",
           "transition-all duration-300 ease-in-out",
-          /* Desktop */
+          /* Desktop: lower z-index, below header */
           "lg:z-30",
           collapsed ? "lg:w-[72px]" : "lg:w-64",
           /* Mobile */

@@ -58,7 +58,7 @@ export function GlassCard({
         "shadow-[0_8px_32px_rgba(26,26,46,0.06)]",
         paddingMap[padding],
         hover &&
-          "transition-all duration-300 hover:border-white/30 hover:bg-white/55 hover:shadow-[0_12px_40px_rgba(26,26,46,0.1)]",
+          "transition-all duration-200 hover:border-white/30 hover:bg-white/55 hover:shadow-[0_12px_40px_rgba(26,26,46,0.1)] hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99]",
         className
       )}
       {...props}

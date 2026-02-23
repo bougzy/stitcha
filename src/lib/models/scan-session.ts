@@ -33,7 +33,7 @@ const ScanSessionSchema = new Schema<IScanSession>(
 );
 
 ScanSessionSchema.index({ linkCode: 1 });
-ScanSessionSchema.index({ designerId: 1 });
+ScanSessionSchema.index({ designerId: 1, createdAt: -1 });
 
 export const ScanSession =
   mongoose.models.ScanSession || mongoose.model<IScanSession>("ScanSession", ScanSessionSchema);

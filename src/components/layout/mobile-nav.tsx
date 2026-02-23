@@ -39,7 +39,7 @@ export function MobileNav() {
         "pb-[env(safe-area-inset-bottom)]"
       )}
     >
-      <ul className="flex items-center justify-around px-2 pt-1.5 pb-1.5">
+      <ul className="flex items-center justify-around px-1">
         {navItems.map(({ label, href, icon: Icon }) => {
           const isActive =
             href === "/dashboard"
@@ -51,16 +51,15 @@ export function MobileNav() {
               <Link
                 href={href}
                 className={cn(
-                  "group flex flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 transition-colors",
+                  "group flex flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-2.5 min-h-[44px] touch-manipulation transition-colors active:scale-95",
                   isActive
                     ? "text-[#C75B39]"
                     : "text-[#1A1A2E]/40 hover:text-[#1A1A2E]/60"
                 )}
               >
                 <div className="relative flex items-center justify-center">
-                  {/* Active background pill */}
                   {isActive && (
-                    <span className="absolute -inset-x-2 -inset-y-0.5 rounded-lg bg-[#C75B39]/10" />
+                    <span className="absolute -inset-x-2.5 -inset-y-1 rounded-lg bg-[#C75B39]/10" />
                   )}
                   <Icon
                     className="relative h-5 w-5"

@@ -84,6 +84,7 @@ const OrderSchema = new Schema<IOrder>(
 );
 
 OrderSchema.index({ designerId: 1, status: 1 });
+OrderSchema.index({ designerId: 1, createdAt: -1 });
 OrderSchema.index({ clientId: 1 });
 OrderSchema.index({ dueDate: 1 });
 

@@ -154,6 +154,17 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  overscroll-behavior: none;
+  min-height: 100dvh;
+}
+
+/* -- CSS Containment for layout performance -- */
+.contain-strict {
+  contain: strict;
+}
+
+.contain-layout {
+  contain: layout style;
 }
 
 /* -- Glassmorphism Utilities -- */
@@ -287,4 +298,37 @@ body {
   .safe-top {
     padding-top: env(safe-area-inset-top);
   }
+}
+
+/* -- Reduced Motion -- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .glass-card:hover {
+    transform: none;
+  }
+}
+
+/* -- Hide Scrollbar Utility -- */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* -- Touch Action Optimization -- */
+.touch-pan-y {
+  touch-action: pan-y;
+}
+
+.touch-manipulation {
+  touch-action: manipulation;
 }

@@ -6,6 +6,7 @@ const withPWA = withPWAInit({
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
   reloadOnOnline: true,
+  fallbacks: { document: "/offline" },
   disable: process.env.NODE_ENV === "development",
   workboxOptions: {
     disableDevLogs: true,
@@ -27,20 +28,31 @@ const withPWA = withPWAInit({
         },
       },
       {
+        // Static JS/CSS chunks — cache aggressively (hashed filenames)
+        urlPattern: /\/_next\/static\/.*/i,
+        handler: "CacheFirst",
+        options: {
+          cacheName: "next-static",
+          expiration: { maxEntries: 128, maxAgeSeconds: 365 * 24 * 60 * 60 },
+        },
+      },
+      {
+        // API: network-first with short cache for offline fallback
         urlPattern: /\/api\/(?!auth\/).*/i,
         handler: "NetworkFirst",
         options: {
           cacheName: "api-cache",
-          expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
-          networkTimeoutSeconds: 10,
+          expiration: { maxEntries: 32, maxAgeSeconds: 5 * 60 },
+          networkTimeoutSeconds: 5,
         },
       },
       {
-        urlPattern: /\/dashboard.*$/i,
+        // Dashboard pages: stale-while-revalidate for fast navigation
+        urlPattern: /\/(dashboard|clients|orders|settings|scan|style-vault|heartbeat|rank|calendar).*$/i,
         handler: "StaleWhileRevalidate",
         options: {
-          cacheName: "dashboard-cache",
-          expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 },
+          cacheName: "app-pages",
+          expiration: { maxEntries: 32, maxAgeSeconds: 30 * 60 },
         },
       },
     ],
@@ -59,7 +71,15 @@ const nextConfig: NextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256],
   },
   experimental: {
-    optimizePackageImports: ["lucide-react", "framer-motion", "date-fns"],
+    optimizePackageImports: [
+      "lucide-react",
+      "framer-motion",
+      "date-fns",
+      "recharts",
+      "jspdf",
+      "jspdf-autotable",
+      "react-hook-form",
+    ],
   },
   async headers() {
     return [

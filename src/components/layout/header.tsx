@@ -70,6 +70,7 @@ export function Header({ onToggleSidebar, sidebarCollapsed = false }: HeaderProp
         "fixed top-0 right-0 left-0 z-50 h-16",
         "border-b border-white/15 bg-white/60 backdrop-blur-xl",
         "shadow-[0_1px_12px_rgba(26,26,46,0.04)]",
+        "pt-[env(safe-area-inset-top)]",
         sidebarCollapsed ? "lg:left-[72px]" : "lg:left-64"
       )}
     >
@@ -164,7 +165,7 @@ export function Header({ onToggleSidebar, sidebarCollapsed = false }: HeaderProp
             {dropdownOpen && (
               <div
                 className={cn(
-                  "absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-xl",
+                  "absolute right-0 top-full mt-2 w-52 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl",
                   "border border-white/20 bg-white/80 backdrop-blur-xl",
                   "shadow-[0_12px_40px_rgba(26,26,46,0.12)]",
                   "animate-in fade-in slide-in-from-top-2 duration-200"

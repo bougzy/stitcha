@@ -26,159 +26,153 @@ export async function GET() {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
-    // Last 6 months for revenue trend
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
-    const [
-      totalClients,
-      totalOrders,
-      activeOrders,
-      revenueResult,
-      recentClients,
-      recentOrders,
-      scansThisMonth,
-      ordersByStatusResult,
-      monthlyRevenueTrend,
-      garmentBreakdown,
-      paymentStats,
-      totalReceivables,
-    ] = await Promise.all([
-      Client.countDocuments({ designerId }),
-      Order.countDocuments({ designerId }),
-      Order.countDocuments({
-        designerId,
-        status: { $nin: ["delivered", "cancelled"] },
-      }),
-      Order.aggregate([
-        {
-          $match: {
-            designerId: designerObjectId,
-            createdAt: { $gte: startOfMonth, $lte: endOfMonth },
-            status: { $ne: "cancelled" },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: "$price" },
-          },
-        },
-      ]),
-      Client.find({ designerId })
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .lean(),
-      Order.find({ designerId })
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .populate("clientId", "name phone")
-        .lean(),
-      ScanSession.countDocuments({
-        designerId,
-        createdAt: { $gte: startOfMonth, $lte: endOfMonth },
-      }),
-      Order.aggregate([
-        { $match: { designerId: designerObjectId } },
-        { $group: { _id: "$status", count: { $sum: 1 } } },
-      ]),
-      // Monthly revenue trend (last 6 months)
-      Order.aggregate([
-        {
-          $match: {
-            designerId: designerObjectId,
-            createdAt: { $gte: sixMonthsAgo },
-            status: { $ne: "cancelled" },
-          },
-        },
-        {
-          $group: {
-            _id: {
-              year: { $year: "$createdAt" },
-              month: { $month: "$createdAt" },
+    // Single $facet aggregation replaces 9 separate Order queries
+    const [orderFacetResult, totalClients, recentClients, scansThisMonth] =
+      await Promise.all([
+        Order.aggregate([
+          { $match: { designerId: designerObjectId } },
+          {
+            $facet: {
+              totalOrders: [{ $count: "count" }],
+              activeOrders: [
+                { $match: { status: { $nin: ["delivered", "cancelled"] } } },
+                { $count: "count" },
+              ],
+              revenue: [
+                {
+                  $match: {
+                    createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+                    status: { $ne: "cancelled" },
+                  },
+                },
+                { $group: { _id: null, total: { $sum: "$price" } } },
+              ],
+              recentOrders: [
+                { $sort: { createdAt: -1 as const } },
+                { $limit: 5 },
+                {
+                  $lookup: {
+                    from: "clients",
+                    localField: "clientId",
+                    foreignField: "_id",
+                    as: "_client",
+                  },
+                },
+                {
+                  $unwind: {
+                    path: "$_client",
+                    preserveNullAndEmptyArrays: true,
+                  },
+                },
+                {
+                  $addFields: {
+                    client: {
+                      name: "$_client.name",
+                      phone: "$_client.phone",
+                    },
+                  },
+                },
+                { $project: { _client: 0 } },
+              ],
+              byStatus: [
+                { $group: { _id: "$status", count: { $sum: 1 } } },
+              ],
+              monthlyTrend: [
+                {
+                  $match: {
+                    createdAt: { $gte: sixMonthsAgo },
+                    status: { $ne: "cancelled" },
+                  },
+                },
+                {
+                  $group: {
+                    _id: {
+                      year: { $year: "$createdAt" },
+                      month: { $month: "$createdAt" },
+                    },
+                    revenue: { $sum: "$price" },
+                    collected: { $sum: "$depositPaid" },
+                    orders: { $sum: 1 },
+                  },
+                },
+                { $sort: { "_id.year": 1 as const, "_id.month": 1 as const } },
+              ],
+              garments: [
+                { $match: { status: { $ne: "cancelled" } } },
+                {
+                  $group: {
+                    _id: "$garmentType",
+                    count: { $sum: 1 },
+                    revenue: { $sum: "$price" },
+                  },
+                },
+                { $sort: { count: -1 as const } },
+                { $limit: 8 },
+              ],
+              paymentStats: [
+                { $match: { status: { $nin: ["cancelled"] } } },
+                {
+                  $group: {
+                    _id: "$paymentStatus",
+                    count: { $sum: 1 },
+                    total: { $sum: "$price" },
+                  },
+                },
+              ],
+              receivables: [
+                {
+                  $match: {
+                    status: { $nin: ["cancelled", "delivered"] },
+                  },
+                },
+                {
+                  $group: {
+                    _id: null,
+                    totalPrice: { $sum: "$price" },
+                    totalPaid: { $sum: "$depositPaid" },
+                  },
+                },
+              ],
             },
-            revenue: { $sum: "$price" },
-            collected: { $sum: "$depositPaid" },
-            orders: { $sum: 1 },
           },
-        },
-        { $sort: { "_id.year": 1, "_id.month": 1 } },
-      ]),
-      // Garment type breakdown
-      Order.aggregate([
-        {
-          $match: {
-            designerId: designerObjectId,
-            status: { $ne: "cancelled" },
-          },
-        },
-        {
-          $group: {
-            _id: "$garmentType",
-            count: { $sum: 1 },
-            revenue: { $sum: "$price" },
-          },
-        },
-        { $sort: { count: -1 } },
-        { $limit: 8 },
-      ]),
-      // Payment status breakdown
-      Order.aggregate([
-        {
-          $match: {
-            designerId: designerObjectId,
-            status: { $nin: ["cancelled"] },
-          },
-        },
-        {
-          $group: {
-            _id: "$paymentStatus",
-            count: { $sum: 1 },
-            total: { $sum: "$price" },
-          },
-        },
-      ]),
-      // Total outstanding receivables
-      Order.aggregate([
-        {
-          $match: {
-            designerId: designerObjectId,
-            status: { $nin: ["cancelled", "delivered"] },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            totalPrice: { $sum: "$price" },
-            totalPaid: { $sum: "$depositPaid" },
-          },
-        },
-      ]),
-    ]);
+        ]),
+        Client.countDocuments({ designerId }),
+        Client.find({ designerId })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean(),
+        ScanSession.countDocuments({
+          designerId,
+          createdAt: { $gte: startOfMonth, $lte: endOfMonth },
+        }),
+      ]);
 
-    const revenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+    // Extract facet results
+    const facet = orderFacetResult[0];
+    const totalOrders = facet.totalOrders[0]?.count ?? 0;
+    const activeOrders = facet.activeOrders[0]?.count ?? 0;
+    const revenue = facet.revenue[0]?.total ?? 0;
 
     const ordersByStatus: Record<string, number> = {};
-    for (const item of ordersByStatusResult) {
+    for (const item of facet.byStatus) {
       ordersByStatus[item._id] = item.count;
     }
 
-    const formattedOrders = recentOrders.map((order) => {
-      const populated = order as Record<string, unknown>;
-      const client = populated.clientId as { name?: string; phone?: string } | null;
-      return {
+    const formattedOrders = facet.recentOrders.map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (order: any) => ({
         ...order,
-        client: client ? { name: client.name, phone: client.phone } : null,
-        clientId:
-          populated.clientId && typeof populated.clientId === "object" && "_id" in populated.clientId
-            ? (populated.clientId as { _id: string })._id.toString()
-            : populated.clientId,
-      };
-    });
+        clientId: order.clientId?.toString() ?? order.clientId,
+      })
+    );
 
-    // Build monthly revenue trend with proper month names
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const revenueTrend = monthlyRevenueTrend.map(
+    const monthNames = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    const revenueTrend = facet.monthlyTrend.map(
       (m: { _id: { year: number; month: number }; revenue: number; collected: number; orders: number }) => ({
         month: monthNames[m._id.month - 1],
         revenue: m.revenue,
@@ -187,8 +181,7 @@ export async function GET() {
       })
     );
 
-    // Garment breakdown
-    const garments = garmentBreakdown.map(
+    const garments = facet.garments.map(
       (g: { _id: string; count: number; revenue: number }) => ({
         type: g._id,
         count: g.count,
@@ -196,15 +189,15 @@ export async function GET() {
       })
     );
 
-    // Payment status
     const paymentBreakdown: Record<string, { count: number; total: number }> = {};
-    for (const p of paymentStats as { _id: string | null; count: number; total: number }[]) {
+    for (const p of facet.paymentStats as { _id: string | null; count: number; total: number }[]) {
       paymentBreakdown[p._id || "unpaid"] = { count: p.count, total: p.total };
     }
 
-    const receivables = totalReceivables.length > 0
-      ? totalReceivables[0].totalPrice - totalReceivables[0].totalPaid
-      : 0;
+    const receivables =
+      facet.receivables.length > 0
+        ? facet.receivables[0].totalPrice - facet.receivables[0].totalPaid
+        : 0;
 
     return NextResponse.json({
       success: true,

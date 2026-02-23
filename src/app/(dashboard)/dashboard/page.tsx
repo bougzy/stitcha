@@ -27,6 +27,7 @@ import { StatCard } from "@/components/common/stat-card";
 import { GlassCard } from "@/components/common/glass-card";
 import { EmptyState } from "@/components/common/empty-state";
 import { SectionLoader } from "@/components/common/loading";
+import { DashboardSkeleton } from "@/components/common/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatCurrency, formatPhone, getInitials } from "@/lib/utils";
@@ -195,20 +196,8 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* ---- Loading State ---- */}
-        {loading && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <SectionLoader key={i} lines={2} />
-              ))}
-            </div>
-            <div className="grid gap-6 lg:grid-cols-2">
-              <SectionLoader lines={5} />
-              <SectionLoader lines={5} />
-            </div>
-          </div>
-        )}
+        {/* ---- Loading State — content-shaped skeletons ---- */}
+        {loading && <DashboardSkeleton />}
 
         {/* ---- Error State ---- */}
         {error && !loading && (

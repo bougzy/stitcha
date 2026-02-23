@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Download, Plus, Search, ShoppingBag, Filter } from "lucide-react";
+import { Download, Plus, Search, ShoppingBag, Filter, CheckSquare, Square, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
 import { EmptyState } from "@/components/common/empty-state";
@@ -75,6 +75,9 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchMenuOpen, setBatchMenuOpen] = useState(false);
+  const [batchUpdating, setBatchUpdating] = useState(false);
 
   /* ---- Fetch orders ---- */
   const fetchOrders = useCallback(async () => {
@@ -107,6 +110,50 @@ export default function OrdersPage() {
     const debounce = setTimeout(fetchOrders, search ? 300 : 0);
     return () => clearTimeout(debounce);
   }, [fetchOrders, search]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === orders.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(orders.map((o) => o._id)));
+    }
+  };
+
+  const handleBatchUpdate = async (newStatus: string) => {
+    setBatchUpdating(true);
+    setBatchMenuOpen(false);
+    try {
+      const res = await fetch("/api/orders/batch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: Array.from(selectedIds),
+          status: newStatus,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success(`Updated ${json.data.updated} orders to ${newStatus}`);
+        setSelectedIds(new Set());
+        fetchOrders();
+      } else {
+        toast.error(json.error || "Batch update failed");
+      }
+    } catch {
+      toast.error("Failed to update orders");
+    } finally {
+      setBatchUpdating(false);
+    }
+  };
 
   return (
     <PageTransition>
@@ -160,6 +207,51 @@ export default function OrdersPage() {
           ))}
         </div>
 
+        {/* Batch actions bar */}
+        {!loading && orders.length > 0 && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleAll}
+              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-[#1A1A2E]/50 transition-colors hover:bg-white/50 hover:text-[#1A1A2E]"
+            >
+              {selectedIds.size === orders.length ? (
+                <CheckSquare className="h-4 w-4 text-[#C75B39]" />
+              ) : (
+                <Square className="h-4 w-4" />
+              )}
+              {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
+            </button>
+
+            {selectedIds.size > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setBatchMenuOpen(!batchMenuOpen)}
+                  disabled={batchUpdating}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#C75B39] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {batchUpdating ? "Updating..." : "Update Status"}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+                {batchMenuOpen && (
+                  <div className="absolute left-0 top-full z-20 mt-1 w-40 rounded-xl border border-white/20 bg-white/90 p-1 shadow-lg backdrop-blur-xl">
+                    {["confirmed", "cutting", "sewing", "fitting", "finishing", "ready", "delivered", "cancelled"].map(
+                      (s) => (
+                        <button
+                          key={s}
+                          onClick={() => handleBatchUpdate(s)}
+                          className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium capitalize text-[#1A1A2E]/70 transition-colors hover:bg-[#C75B39]/8 hover:text-[#C75B39]"
+                        >
+                          {s}
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Order grid */}
         {loading ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -208,7 +300,13 @@ export default function OrdersPage() {
             }}
           >
             {orders.map((order, index) => (
-              <OrderCard key={order._id} order={order} index={index} />
+              <OrderCard
+                key={order._id}
+                order={order}
+                index={index}
+                selected={selectedIds.has(order._id)}
+                onToggleSelect={toggleSelect}
+              />
             ))}
           </motion.div>
         )}

@@ -92,9 +92,11 @@ function getDueDateInfo(dueDate?: string) {
 interface OrderCardProps {
   order: Order;
   index?: number;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
-export function OrderCard({ order, index = 0 }: OrderCardProps) {
+export function OrderCard({ order, index = 0, selected, onToggleSelect }: OrderCardProps) {
   const router = useRouter();
   const progress = getProgressPercent(order.status);
   const dueDateInfo = getDueDateInfo(order.dueDate);
@@ -107,16 +109,34 @@ export function OrderCard({ order, index = 0 }: OrderCardProps) {
       transition={{ duration: 0.3, delay: index * 0.05 }}
       onClick={() => router.push(`/orders/${order._id}`)}
       className={cn(
-        "group cursor-pointer",
-        "rounded-2xl border border-white/20 bg-white/40 backdrop-blur-md",
+        "group relative cursor-pointer",
+        "rounded-2xl border bg-white/40 backdrop-blur-md",
         "shadow-[0_8px_32px_rgba(26,26,46,0.06)]",
-        "transition-all duration-300",
+        "transition-all duration-200",
         "hover:border-white/30 hover:bg-white/55",
         "hover:shadow-[0_12px_40px_rgba(26,26,46,0.1)]",
-        "hover:-translate-y-0.5",
-        "p-4"
+        "hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99]",
+        "p-4",
+        selected ? "border-[#C75B39]/30 bg-[#C75B39]/[0.04]" : "border-white/20"
       )}
     >
+      {/* Selection checkbox */}
+      {onToggleSelect && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleSelect(order._id);
+          }}
+          className="absolute right-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded border border-[#1A1A2E]/15 bg-white/80 text-[#C75B39] transition-all hover:border-[#C75B39]/30"
+          aria-label={selected ? "Deselect order" : "Select order"}
+        >
+          {selected && (
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
+              <path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+      )}
       {/* Top row: title + status */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">

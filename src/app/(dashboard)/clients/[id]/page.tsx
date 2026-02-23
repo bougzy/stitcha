@@ -18,6 +18,11 @@ import {
   StickyNote,
   Trash2,
   TrendingUp,
+  TrendingDown,
+  History,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
@@ -587,6 +592,84 @@ export default function ClientDetailPage() {
             )}
           </GlassCard>
         </motion.div>
+
+        {/* Measurement Comparison */}
+        {measurements && measurementHistory.length > 1 && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+          >
+            <GlassCard padding="lg">
+              <div className="mb-4 flex items-center gap-2">
+                <History className="h-5 w-5 text-[#C75B39]" />
+                <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                  Measurement History
+                </h2>
+                <span className="rounded-full bg-[#C75B39]/10 px-2 py-0.5 text-xs font-medium text-[#C75B39]">
+                  {measurementHistory.length} records
+                </span>
+              </div>
+
+              {/* Compare latest vs previous */}
+              {(() => {
+                const latest = measurementHistory[measurementHistory.length - 1];
+                const previous = measurementHistory[measurementHistory.length - 2];
+                if (!latest || !previous) return null;
+
+                return (
+                  <div>
+                    <p className="mb-3 text-xs font-medium text-[#1A1A2E]/40">
+                      Comparing latest ({latest.measuredAt ? new Date(latest.measuredAt).toLocaleDateString("en-NG", { month: "short", day: "numeric" }) : "current"})
+                      {" vs "}
+                      previous ({previous.measuredAt ? new Date(previous.measuredAt).toLocaleDateString("en-NG", { month: "short", day: "numeric" }) : "older"})
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                      {MEASUREMENT_TYPES.map((type) => {
+                        const curr = latest[type.key] as number | undefined;
+                        const prev = previous[type.key] as number | undefined;
+                        if (!curr || !prev) return null;
+
+                        const diff = Math.round((curr - prev) * 10) / 10;
+                        if (diff === 0) return null;
+
+                        return (
+                          <div
+                            key={type.key}
+                            className="flex items-center justify-between rounded-lg border border-white/20 bg-white/30 px-2.5 py-2"
+                          >
+                            <div>
+                              <p className="text-[10px] text-[#1A1A2E]/40">{type.label}</p>
+                              <p className="text-sm font-semibold text-[#1A1A2E]">
+                                {curr} <span className="text-[10px] font-normal text-[#1A1A2E]/35">{type.unit}</span>
+                              </p>
+                            </div>
+                            <div
+                              className={cn(
+                                "flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                                diff > 0
+                                  ? "bg-emerald-50 text-emerald-600"
+                                  : "bg-red-50 text-red-500"
+                              )}
+                            >
+                              {diff > 0 ? (
+                                <ArrowUpRight className="h-3 w-3" />
+                              ) : (
+                                <ArrowDownRight className="h-3 w-3" />
+                              )}
+                              {diff > 0 ? "+" : ""}
+                              {diff}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </GlassCard>
+          </motion.div>
+        )}
 
         {/* Fabric Calculator section */}
         {measurements && (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Download, Plus, Search, Users, Filter } from "lucide-react";
+import { Download, Plus, Search, Users, Filter, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
 import { EmptyState } from "@/components/common/empty-state";
@@ -65,6 +65,13 @@ export default function ClientsPage() {
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState("");
   const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
+  const [showImport, setShowImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    skipped: number;
+    errors: string[];
+  } | null>(null);
 
   /* ---- Fetch clients ---- */
   const fetchClients = useCallback(async () => {
@@ -96,6 +103,72 @@ export default function ClientsPage() {
     return () => clearTimeout(debounce);
   }, [fetchClients, search]);
 
+  /* ---- CSV Import handler ---- */
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportResult(null);
+
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) {
+        toast.error("CSV file must have a header row and at least one data row");
+        setImporting(false);
+        return;
+      }
+
+      // Parse header
+      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+      const nameIdx = headers.findIndex((h) => h.includes("name"));
+      const phoneIdx = headers.findIndex((h) => h.includes("phone"));
+      const emailIdx = headers.findIndex((h) => h.includes("email"));
+      const genderIdx = headers.findIndex((h) => h.includes("gender"));
+      const notesIdx = headers.findIndex((h) => h.includes("note"));
+
+      if (nameIdx === -1 || phoneIdx === -1) {
+        toast.error("CSV must have 'name' and 'phone' columns");
+        setImporting(false);
+        return;
+      }
+
+      const rows = lines.slice(1).map((line) => {
+        const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+        return {
+          name: cols[nameIdx] || "",
+          phone: cols[phoneIdx] || "",
+          email: emailIdx >= 0 ? cols[emailIdx] : undefined,
+          gender: genderIdx >= 0 ? cols[genderIdx] : undefined,
+          notes: notesIdx >= 0 ? cols[notesIdx] : undefined,
+        };
+      });
+
+      const res = await fetch("/api/clients/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        setImportResult(json.data);
+        if (json.data.imported > 0) {
+          fetchClients();
+          toast.success(`Imported ${json.data.imported} clients`);
+        }
+      } else {
+        toast.error(json.error || "Import failed");
+      }
+    } catch {
+      toast.error("Failed to parse CSV file");
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
+  };
+
   return (
     <PageTransition>
       <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6">
@@ -108,9 +181,13 @@ export default function ClientsPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowImport(true)}>
+              <Upload className="h-4 w-4" />
+              <span className="hidden sm:inline">Import</span>
+            </Button>
             <Button variant="outline" onClick={() => window.open("/api/clients/export", "_blank")}>
               <Download className="h-4 w-4" />
-              Export
+              <span className="hidden sm:inline">Export</span>
             </Button>
             <Button onClick={() => router.push("/clients/new")} size="lg">
               <Plus className="h-4 w-4" />
@@ -199,6 +276,104 @@ export default function ClientsPage() {
           </p>
         )}
       </div>
+
+      {/* CSV Import Modal */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1A1A2E]/40 backdrop-blur-sm p-4" onClick={() => { setShowImport(false); setImportResult(null); }}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/30 bg-white/90 p-6 shadow-[0_16px_48px_rgba(26,26,46,0.15)] backdrop-blur-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-5">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
+                <FileSpreadsheet className="h-5 w-5 text-[#C75B39]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-[#1A1A2E]">Import Clients</h3>
+                <p className="text-xs text-[#1A1A2E]/50">Upload a CSV file with client data</p>
+              </div>
+            </div>
+
+            {!importResult ? (
+              <>
+                <div className="rounded-xl border-2 border-dashed border-[#C75B39]/20 bg-[#C75B39]/[0.03] p-6 text-center">
+                  <Upload className="mx-auto h-8 w-8 text-[#C75B39]/40" />
+                  <p className="mt-3 text-sm font-medium text-[#1A1A2E]/70">
+                    {importing ? "Importing..." : "Choose CSV file"}
+                  </p>
+                  <p className="mt-1 text-xs text-[#1A1A2E]/40">
+                    Must have &quot;name&quot; and &quot;phone&quot; columns
+                  </p>
+                  <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-all active:scale-95">
+                    <Upload className="h-4 w-4" />
+                    {importing ? "Importing..." : "Select File"}
+                    <input
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={handleCsvImport}
+                      disabled={importing}
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-4 rounded-lg bg-[#D4A853]/8 p-3">
+                  <p className="text-xs font-medium text-[#1A1A2E]/60 mb-1">CSV format example:</p>
+                  <code className="block text-[10px] text-[#1A1A2E]/50 font-mono leading-relaxed">
+                    name,phone,email,gender,notes<br />
+                    Amina Bello,08012345678,amina@email.com,female,VIP<br />
+                    Chidi Okafor,07098765432,,male,
+                  </code>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 rounded-xl bg-green-50/50 p-4">
+                  <CheckCircle2 className="h-6 w-6 text-green-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-[#1A1A2E]">
+                      {importResult.imported} clients imported
+                    </p>
+                    {importResult.skipped > 0 && (
+                      <p className="text-xs text-[#1A1A2E]/50">
+                        {importResult.skipped} skipped
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {importResult.errors.length > 0 && (
+                  <div className="max-h-32 overflow-y-auto rounded-lg bg-red-50/50 p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+                      <p className="text-xs font-medium text-red-600">Issues:</p>
+                    </div>
+                    {importResult.errors.map((err, i) => (
+                      <p key={i} className="text-[10px] text-red-500/70 leading-relaxed">{err}</p>
+                    ))}
+                  </div>
+                )}
+
+                <Button
+                  className="w-full"
+                  onClick={() => { setShowImport(false); setImportResult(null); }}
+                >
+                  Done
+                </Button>
+              </div>
+            )}
+
+            {!importResult && (
+              <button
+                onClick={() => { setShowImport(false); setImportResult(null); }}
+                className="mt-4 w-full text-center text-sm text-[#1A1A2E]/40 hover:text-[#1A1A2E]/60 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </PageTransition>
   );
 }
