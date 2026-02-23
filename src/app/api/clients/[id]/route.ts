@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import { Client } from "@/lib/models/client";
 import { Order } from "@/lib/models/order";
 import { clientSchema } from "@/lib/validations";
+import { logActivity } from "@/lib/models/activity-log";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/clients/[id]                                                     */
@@ -174,11 +175,22 @@ export async function DELETE(
       );
     }
 
-    // Delete related orders and then the client
+    // Soft-delete related orders, hard-delete the client
+    // NOTE: lifetime client counter is NOT decremented — this is intentional to prevent tier-gaming
     await Promise.all([
-      Order.deleteMany({ clientId: id }),
+      Order.updateMany({ clientId: id }, { $set: { isDeleted: true, deletedAt: new Date() } }),
       Client.deleteOne({ _id: id }),
     ]);
+
+    // Audit log
+    logActivity({
+      designerId,
+      action: "delete_client",
+      entity: "client",
+      entityId: id,
+      details: `Deleted client "${client.name}" (lifetime counter unchanged)`,
+      metadata: { clientName: client.name, clientPhone: client.phone },
+    });
 
     return NextResponse.json({
       success: true,

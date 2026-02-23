@@ -3,6 +3,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Order } from "@/lib/models/order";
+import { Designer } from "@/lib/models/designer";
+import { logActivity } from "@/lib/models/activity-log";
+import { checkRolePermission } from "@/lib/subscription";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/orders/[id]                                                      */
@@ -28,7 +31,7 @@ export async function GET(
 
     await connectDB();
 
-    const order = await Order.findOne({ _id: id, designerId })
+    const order = await Order.findOne({ _id: id, designerId, isDeleted: { $ne: true } })
       .populate("clientId", "name phone email gender measurements lastMeasuredAt")
       .lean();
 
@@ -89,6 +92,20 @@ export async function PUT(
 
     await connectDB();
 
+    // Fetch existing order to check status-based edit restrictions
+    const existingOrder = await Order.findOne({ _id: id, designerId, isDeleted: { $ne: true } });
+    if (!existingOrder) {
+      return NextResponse.json(
+        { success: false, error: "Order not found" },
+        { status: 404 }
+      );
+    }
+
+    // Fields that are locked once an order is in-progress (cutting, sewing, etc.)
+    const IN_PROGRESS_STATUSES = ["cutting", "sewing", "fitting", "finishing", "ready", "delivered"];
+    const isInProgress = IN_PROGRESS_STATUSES.includes(existingOrder.status);
+    const LOCKED_AFTER_IN_PROGRESS = ["price", "garmentType", "fabric", "clientId"];
+
     // Build update object - allow partial updates including status changes
     const allowedFields = [
       "title",
@@ -100,18 +117,23 @@ export async function PUT(
       "depositPaid",
       "dueDate",
       "notes",
+      "receiptSent",
     ];
 
     const update: Record<string, unknown> = {};
     for (const field of allowedFields) {
       if (body[field] !== undefined) {
+        // Enforce read-only after in-progress
+        if (isInProgress && LOCKED_AFTER_IN_PROGRESS.includes(field)) {
+          continue; // silently skip locked fields
+        }
         update[field] = body[field];
       }
     }
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { success: false, error: "No valid fields to update" },
+        { success: false, error: isInProgress ? "These fields are locked once production has started" : "No valid fields to update" },
         { status: 400 }
       );
     }
@@ -119,7 +141,6 @@ export async function PUT(
     // If status is changing, also push to statusHistory
     const updateOps: Record<string, unknown> = { $set: update };
     if (update.status) {
-      const existingOrder = await Order.findOne({ _id: id, designerId });
       if (existingOrder && existingOrder.status !== update.status) {
         updateOps.$push = {
           statusHistory: {
@@ -132,7 +153,7 @@ export async function PUT(
     }
 
     const order = await Order.findOneAndUpdate(
-      { _id: id, designerId },
+      { _id: id, designerId, isDeleted: { $ne: true } },
       updateOps,
       { new: true, runValidators: true }
     ).populate("clientId", "name phone email gender measurements lastMeasuredAt");
@@ -142,6 +163,18 @@ export async function PUT(
         { success: false, error: "Order not found" },
         { status: 404 }
       );
+    }
+
+    // Audit log for status changes
+    if (update.status) {
+      logActivity({
+        designerId,
+        action: "update_order_status",
+        entity: "order",
+        entityId: id,
+        details: `Status changed to "${update.status}"`,
+        metadata: { newStatus: update.status, title: order.title },
+      });
     }
 
     // Transform populated clientId to client field
@@ -173,7 +206,7 @@ export async function PUT(
 
 /* -------------------------------------------------------------------------- */
 /*  DELETE /api/orders/[id]                                                   */
-/*  Delete an order                                                           */
+/*  Soft-delete an order (preserves data for audit trail)                     */
 /* -------------------------------------------------------------------------- */
 
 export async function DELETE(
@@ -195,7 +228,19 @@ export async function DELETE(
 
     await connectDB();
 
-    const order = await Order.findOneAndDelete({ _id: id, designerId });
+    // Role check: only owners and managers can delete orders
+    const designer = await Designer.findById(designerId).select("role").lean();
+    const roleCheck = checkRolePermission(designer?.role || "owner", "delete_order");
+    if (!roleCheck.allowed) {
+      return NextResponse.json({ success: false, error: roleCheck.message }, { status: 403 });
+    }
+
+    // Soft-delete: mark as deleted instead of removing from DB
+    const order = await Order.findOneAndUpdate(
+      { _id: id, designerId, isDeleted: { $ne: true } },
+      { $set: { isDeleted: true, deletedAt: new Date() } },
+      { new: true }
+    );
 
     if (!order) {
       return NextResponse.json(
@@ -203,6 +248,16 @@ export async function DELETE(
         { status: 404 }
       );
     }
+
+    // Audit log
+    logActivity({
+      designerId,
+      action: "soft_delete_order",
+      entity: "order",
+      entityId: id,
+      details: `Soft-deleted order "${order.title}" (${order.price} ${order.currency})`,
+      metadata: { title: order.title, price: order.price, status: order.status },
+    });
 
     return NextResponse.json({
       success: true,

@@ -584,8 +584,8 @@ export default function ClientScanPage() {
               />
               <InstructionItem
                 icon={Shield}
-                title="Your photos stay private"
-                description="Photos are processed on your phone and never uploaded. Only measurements are saved."
+                title="Military-Grade Privacy"
+                description="Photos are processed by AI on your phone and NEVER leave your device. Only measurements are saved. Zero data stored on any server."
               />
             </div>
 
@@ -1245,12 +1245,17 @@ export default function ClientScanPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-emerald-500/5 p-3">
-              <Shield className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-              <p className="text-xs leading-relaxed text-emerald-700/70">
-                Your photos are processed by AI on this device only. They are
-                never uploaded or stored. Only measurements are saved.
-              </p>
+            {/* Military-Grade Privacy Badge */}
+            <div className="mt-4 flex items-center gap-3 rounded-xl border border-emerald-200/40 bg-emerald-500/5 px-4 py-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
+                <Shield className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-emerald-700">Military-Grade Privacy</p>
+                <p className="mt-0.5 text-[10px] leading-relaxed text-emerald-600/70">
+                  Photos processed on-device only. Never uploaded. Never stored. Only measurements are saved.
+                </p>
+              </div>
             </div>
 
             <div className="mt-3 space-y-2">
@@ -1584,10 +1589,14 @@ export default function ClientScanPage() {
                     <span className="font-medium text-[#1A1A2E]/80">
                       {sessionInfo.designerName}
                     </span>{" "}
-                    will review them shortly.
+                    will review and confirm them before use.
                   </>
                 )}
               </p>
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1">
+                <Shield className="h-3 w-3 text-emerald-500" />
+                <span className="text-[10px] font-medium text-emerald-600">Photos deleted from memory</span>
+              </div>
             </motion.div>
 
             <motion.div

@@ -22,6 +22,7 @@ export interface IOrder extends Document {
   statusHistory: IStatusHistoryEntry[];
   garmentType: string;
   fabric?: string;
+  fabricImages: string[];
   price: number;
   currency: string;
   depositPaid: number;
@@ -30,6 +31,9 @@ export interface IOrder extends Document {
   gallery: string[];
   dueDate?: Date;
   notes?: string;
+  isDeleted: boolean;
+  deletedAt?: Date;
+  receiptSent: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -67,9 +71,13 @@ const OrderSchema = new Schema<IOrder>(
       enum: ["unpaid", "partial", "paid", "overdue"],
       default: "unpaid",
     },
+    fabricImages: [{ type: String }],
     gallery: [{ type: String }],
     dueDate: { type: Date },
     notes: { type: String },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date },
+    receiptSent: { type: Boolean, default: false },
     statusHistory: [
       {
         status: { type: String, required: true },

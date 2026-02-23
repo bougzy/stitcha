@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Order } from "@/lib/models/order";
+import { logActivity } from "@/lib/models/activity-log";
 
 /* -------------------------------------------------------------------------- */
 /*  POST /api/orders/[id]/payments                                            */
@@ -81,6 +82,16 @@ export async function POST(
     }
 
     await order.save();
+
+    // Audit log
+    logActivity({
+      designerId,
+      action: "record_payment",
+      entity: "payment",
+      entityId: id,
+      details: `Recorded ${method || "cash"} payment of ${amount} for "${order.title}"`,
+      metadata: { amount, method: method || "cash", totalPaid, orderTitle: order.title },
+    });
 
     return NextResponse.json({
       success: true,
@@ -162,6 +173,16 @@ export async function DELETE(
     }
 
     await order.save();
+
+    // Audit log
+    logActivity({
+      designerId,
+      action: "delete_payment",
+      entity: "payment",
+      entityId: id,
+      details: `Removed payment (ID: ${paymentId}) from "${order.title}"`,
+      metadata: { paymentId, totalPaid, orderTitle: order.title },
+    });
 
     return NextResponse.json({
       success: true,

@@ -6,6 +6,7 @@ import { Client } from "@/lib/models/client";
 import { Designer } from "@/lib/models/designer";
 import { clientSchema } from "@/lib/validations";
 import { checkSubscriptionLimit } from "@/lib/subscription";
+import { SUBSCRIPTION_PLANS } from "@/lib/constants";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/clients                                                          */
@@ -45,14 +46,19 @@ export async function GET(request: NextRequest) {
       filter.gender = gender;
     }
 
-    const [clients, total] = await Promise.all([
+    const [clients, total, designer] = await Promise.all([
       Client.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
       Client.countDocuments(filter),
+      Designer.findById(designerId).select("subscription lifetimeCounts").lean(),
     ]);
+
+    // Include usage info for the Usage Bar
+    const plan = SUBSCRIPTION_PLANS.find((p) => p.id === (designer?.subscription || "free")) || SUBSCRIPTION_PLANS[0];
+    const lifetimeUsed = designer?.lifetimeCounts?.totalClientsCreated ?? total;
 
     return NextResponse.json({
       success: true,
@@ -63,6 +69,12 @@ export async function GET(request: NextRequest) {
           limit,
           total,
           totalPages: Math.ceil(total / limit),
+        },
+        usage: {
+          lifetimeClientsCreated: lifetimeUsed,
+          clientLimit: plan.clientLimit,
+          planName: plan.name,
+          subscription: designer?.subscription || "free",
         },
       },
     });
@@ -109,16 +121,27 @@ export async function POST(request: Request) {
 
     await connectDB();
 
-    // Check subscription limit for creating clients
-    const designer = await Designer.findById(designerId).select("subscription").lean();
-    const clientCount = await Client.countDocuments({ designerId });
-    const check = checkSubscriptionLimit(designer?.subscription || "free", "create_client", clientCount);
+    // Check subscription limit using LIFETIME count (non-decreasing, prevents delete-and-recreate gaming)
+    const designer = await Designer.findById(designerId).select("subscription role lifetimeCounts").lean();
+    const lifetimeClients = designer?.lifetimeCounts?.totalClientsCreated ?? 0;
+    const currentCount = await Client.countDocuments({ designerId });
+    const check = checkSubscriptionLimit(
+      designer?.subscription || "free",
+      "create_client",
+      currentCount,
+      lifetimeClients
+    );
     if (!check.allowed) {
       return NextResponse.json(
-        { success: false, error: check.message },
+        { success: false, error: check.message, lifetimeCount: lifetimeClients },
         { status: 403 }
       );
     }
+
+    // Atomically increment lifetime counter AND create client
+    await Designer.findByIdAndUpdate(designerId, {
+      $inc: { "lifetimeCounts.totalClientsCreated": 1 },
+    });
 
     const client = await Client.create({
       ...parsed.data,

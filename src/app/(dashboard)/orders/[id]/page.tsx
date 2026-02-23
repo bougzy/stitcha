@@ -25,6 +25,8 @@ import {
   ImageIcon,
   Wallet,
   X,
+  MessageCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -128,6 +130,10 @@ export default function OrderDetailPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [paymentNote, setPaymentNote] = useState("");
   const [recordingPayment, setRecordingPayment] = useState(false);
+  const [receiptPrompt, setReceiptPrompt] = useState<{
+    amount: number;
+    newTotalPaid: number;
+  } | null>(null);
 
   /* ---- Fetch order ---- */
   const fetchOrder = useCallback(async () => {
@@ -486,29 +492,17 @@ export default function OrderDetailPage() {
       }
 
       const newTotalPaid = (order?.depositPaid || 0) + amount;
-      toast.success(`Payment of ${formatCurrency(amount)} recorded`, {
-        action: order?.client?.phone
-          ? {
-              label: "Send Receipt via WhatsApp",
-              onClick: () => {
-                const url = whatsapp.paymentReceipt(
-                  order!.client!.phone,
-                  order!.client!.name,
-                  order!.title,
-                  amount,
-                  newTotalPaid,
-                  order!.price
-                );
-                window.open(url, "_blank");
-              },
-            }
-          : undefined,
-      });
+      toast.success(`Payment of ${formatCurrency(amount)} recorded`);
       setShowPaymentForm(false);
       setPaymentAmount("");
       setPaymentMethod("cash");
       setPaymentNote("");
       fetchOrder();
+
+      // Force receipt prompt — designer MUST acknowledge
+      if (order?.client?.phone) {
+        setReceiptPrompt({ amount, newTotalPaid });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment");
     } finally {
@@ -1292,6 +1286,73 @@ export default function OrderDetailPage() {
                 Delete Order
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Receipt Enforcement Dialog — appears after every payment */}
+        <Dialog open={!!receiptPrompt} onOpenChange={(open) => !open && setReceiptPrompt(null)}>
+          <DialogContent>
+            <DialogClose />
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-green-600" />
+                Send Payment Receipt
+              </DialogTitle>
+              <DialogDescription>
+                A WhatsApp receipt builds trust and serves as proof of payment.
+                Always send receipts to protect both you and your client.
+              </DialogDescription>
+            </DialogHeader>
+            {receiptPrompt && order.client?.phone && (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-xl bg-green-50/50 px-4 py-3">
+                  <p className="text-sm font-semibold text-green-700">
+                    {formatCurrency(receiptPrompt.amount)} received from {order.client?.name}
+                  </p>
+                  <p className="text-xs text-green-600/70 mt-0.5">
+                    Total paid: {formatCurrency(receiptPrompt.newTotalPaid)} / {formatCurrency(order.price)}
+                  </p>
+                </div>
+                <DialogFooter className="flex-col gap-2 sm:flex-col">
+                  <Button
+                    className="w-full gap-2"
+                    onClick={() => {
+                      const url = whatsapp.paymentReceipt(
+                        order.client!.phone,
+                        order.client!.name,
+                        order.title,
+                        receiptPrompt.amount,
+                        receiptPrompt.newTotalPaid,
+                        order.price
+                      );
+                      window.open(url, "_blank");
+                      // Mark receipt as sent
+                      fetch(`/api/orders/${orderId}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ receiptSent: true }),
+                      });
+                      setReceiptPrompt(null);
+                    }}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Send Receipt via WhatsApp
+                  </Button>
+                  <button
+                    onClick={() => {
+                      toast.warning("Receipt not sent — flagged for follow-up", {
+                        description: "Skipping receipts may cause payment disputes",
+                      });
+                      setReceiptPrompt(null);
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-4 py-2.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-50"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Skip Receipt (Not Recommended)
+                  </button>
+                </DialogFooter>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </div>

@@ -4,7 +4,9 @@ import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Order } from "@/lib/models/order";
 import { Client } from "@/lib/models/client";
+import { Designer } from "@/lib/models/designer";
 import { orderSchema } from "@/lib/validations";
+import { logActivity } from "@/lib/models/activity-log";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/orders                                                           */
@@ -34,8 +36,8 @@ export async function GET(request: NextRequest) {
 
     await connectDB();
 
-    // Build filter
-    const filter: Record<string, unknown> = { designerId };
+    // Build filter (exclude soft-deleted orders)
+    const filter: Record<string, unknown> = { designerId, isDeleted: { $ne: true } };
 
     if (search) {
       filter.title = { $regex: search, $options: "i" };
@@ -165,6 +167,21 @@ export async function POST(request: Request) {
         : initialDeposit > 0
         ? "partial"
         : "unpaid",
+    });
+
+    // Increment lifetime order counter
+    await Designer.findByIdAndUpdate(designerId, {
+      $inc: { "lifetimeCounts.totalOrdersCreated": 1 },
+    });
+
+    // Audit log
+    logActivity({
+      designerId,
+      action: "create_order",
+      entity: "order",
+      entityId: order._id.toString(),
+      details: `Created order "${parsed.data.title}" for ${parsed.data.price} NGN`,
+      metadata: { title: parsed.data.title, price: parsed.data.price, clientId: parsed.data.clientId },
     });
 
     return NextResponse.json(

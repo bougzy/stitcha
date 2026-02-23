@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/common/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ClientCard } from "@/components/clients/client-card";
+import { UsageBar, UpgradeModal } from "@/components/common/upgrade-modal";
 import { cn } from "@/lib/utils";
 import type { Client } from "@/types";
 
@@ -72,6 +73,13 @@ export default function ClientsPage() {
     skipped: number;
     errors: string[];
   } | null>(null);
+  const [usage, setUsage] = useState<{
+    lifetimeClientsCreated: number;
+    clientLimit: number;
+    planName: string;
+    subscription: string;
+  } | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   /* ---- Fetch clients ---- */
   const fetchClients = useCallback(async () => {
@@ -90,6 +98,7 @@ export default function ClientsPage() {
       }
 
       setClients(json.data.clients);
+      if (json.data.usage) setUsage(json.data.usage);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load clients");
     } finally {
@@ -196,6 +205,16 @@ export default function ClientsPage() {
           </div>
         </div>
 
+        {/* Usage bar — shows lifetime client usage for free plan */}
+        {usage && usage.clientLimit !== -1 && (
+          <UsageBar
+            used={usage.lifetimeClientsCreated}
+            limit={usage.clientLimit}
+            planName={usage.planName}
+            onUpgrade={() => setShowUpgradeModal(true)}
+          />
+        )}
+
         {/* Search bar */}
         <Input
           placeholder="Search clients by name..."
@@ -276,6 +295,18 @@ export default function ClientsPage() {
           </p>
         )}
       </div>
+
+      {/* Upgrade Modal */}
+      {usage && (
+        <UpgradeModal
+          open={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          lifetimeUsed={usage.lifetimeClientsCreated}
+          limit={usage.clientLimit}
+          planName={usage.planName}
+          resource="clients"
+        />
+      )}
 
       {/* CSV Import Modal */}
       {showImport && (

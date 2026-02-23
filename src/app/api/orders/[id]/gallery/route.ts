@@ -28,7 +28,7 @@ export async function POST(
     const designerId = (session.user as { id: string }).id;
     const { id } = await params;
     const body = await request.json();
-    const { image } = body;
+    const { image, type = "gallery" } = body; // type: "gallery" | "fabric"
 
     if (!image || typeof image !== "string" || !image.startsWith("data:image/")) {
       return NextResponse.json(
@@ -55,6 +55,25 @@ export async function POST(
       );
     }
 
+    if (type === "fabric") {
+      // Fabric images (up to 4)
+      if ((order.fabricImages || []).length >= 4) {
+        return NextResponse.json(
+          { success: false, error: "Maximum 4 fabric images allowed" },
+          { status: 400 }
+        );
+      }
+      order.fabricImages = order.fabricImages || [];
+      order.fabricImages.push(image);
+      await order.save();
+      return NextResponse.json({
+        success: true,
+        message: "Fabric image added",
+        data: { count: order.fabricImages.length },
+      });
+    }
+
+    // Gallery images
     if ((order.gallery || []).length >= MAX_IMAGES) {
       return NextResponse.json(
         { success: false, error: `Maximum ${MAX_IMAGES} images allowed` },

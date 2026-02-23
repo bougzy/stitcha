@@ -1,3 +1,11 @@
+export type DesignerRole = "owner" | "manager" | "apprentice";
+
+export interface LifetimeCounts {
+  totalClientsCreated: number;
+  totalScansUsed: number;
+  totalOrdersCreated: number;
+}
+
 export interface Designer {
   _id: string;
   name: string;
@@ -12,11 +20,26 @@ export interface Designer {
   avatar?: string;
   specialties: string[];
   subscription: "free" | "pro" | "business";
+  role: DesignerRole;
+  teamOwnerId?: string;
+  lifetimeCounts: LifetimeCounts;
   isOnboarded: boolean;
   isVerified: boolean;
   publicProfile: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ActivityLog {
+  _id: string;
+  designerId: string;
+  action: string;
+  entity: "client" | "order" | "payment" | "measurement" | "settings";
+  entityId?: string;
+  details?: string;
+  metadata?: Record<string, unknown>;
+  ip?: string;
+  createdAt: string;
 }
 
 export interface Client {
@@ -87,6 +110,7 @@ export interface Order {
   statusHistory?: StatusHistoryEntry[];
   garmentType: string;
   fabric?: string;
+  fabricImages?: string[];
   price: number;
   currency: string;
   depositPaid: number;
@@ -97,6 +121,9 @@ export interface Order {
   measurements?: Measurements;
   notes?: string;
   images?: string[];
+  isDeleted?: boolean;
+  deletedAt?: string;
+  receiptSent?: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,5 +1,13 @@
 import mongoose, { Schema, type Document } from "mongoose";
 
+export interface ILifetimeCounts {
+  totalClientsCreated: number;
+  totalScansUsed: number;
+  totalOrdersCreated: number;
+}
+
+export type DesignerRole = "owner" | "manager" | "apprentice";
+
 export interface IDesigner extends Document {
   name: string;
   email: string;
@@ -14,6 +22,9 @@ export interface IDesigner extends Document {
   avatar?: string;
   specialties: string[];
   subscription: "free" | "pro" | "business";
+  role: DesignerRole;
+  teamOwnerId?: string;
+  lifetimeCounts: ILifetimeCounts;
   isOnboarded: boolean;
   isVerified: boolean;
   verificationToken?: string;
@@ -39,6 +50,13 @@ const DesignerSchema = new Schema<IDesigner>(
     avatar: { type: String },
     specialties: [{ type: String }],
     subscription: { type: String, enum: ["free", "pro", "business"], default: "free" },
+    role: { type: String, enum: ["owner", "manager", "apprentice"], default: "owner" },
+    teamOwnerId: { type: Schema.Types.ObjectId, ref: "Designer" },
+    lifetimeCounts: {
+      totalClientsCreated: { type: Number, default: 0 },
+      totalScansUsed: { type: Number, default: 0 },
+      totalOrdersCreated: { type: Number, default: 0 },
+    },
     isOnboarded: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     verificationToken: { type: String },
