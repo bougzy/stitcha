@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Client } from "@/lib/models/client";
 import { generateScanLink } from "@/lib/utils";
+import { APP_URL } from "@/lib/constants";
 
 /* -------------------------------------------------------------------------- */
 /*  POST /api/clients/[id]/share                                              */
@@ -47,7 +48,10 @@ export async function POST(
     if (client.shareCode) {
       return NextResponse.json({
         success: true,
-        data: { shareCode: client.shareCode },
+        data: {
+          shareCode: client.shareCode,
+          shareUrl: `${APP_URL}/measurements/${client.shareCode}`,
+        },
       });
     }
 
@@ -66,7 +70,10 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      data: { shareCode },
+      data: {
+        shareCode,
+        shareUrl: `${APP_URL}/measurements/${shareCode}`,
+      },
     });
   } catch (error) {
     console.error("POST /api/clients/[id]/share error:", error);

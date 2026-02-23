@@ -10,13 +10,14 @@ import {
   Check,
   Clock,
   Send,
-  QrCode,
   History,
   AlertCircle,
   Loader2,
   ExternalLink,
   RefreshCw,
   MessageCircle,
+  Share2,
+  Smartphone,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -241,12 +242,40 @@ export default function ScanManagementPage() {
     }
   };
 
-  /* ---- Share via WhatsApp ---- */
-  const handleWhatsAppShare = (url: string, clientName: string) => {
+  /* ---- Share via WhatsApp (with client phone pre-filled if available) ---- */
+  const handleWhatsAppShare = (url: string, clientName: string, clientPhone?: string) => {
     const message = encodeURIComponent(
-      `Hello! Please use this link to take your body measurement photos for your fitting:\n\n${url}\n\nThis link expires in 24 hours. Thank you!`
+      `Hello ${clientName}! Please use this link to take your body measurement photos for your fitting:\n\n${url}\n\nThe AI will guide you through 2 quick photos. This link expires in 24 hours. Thank you!`
     );
-    window.open(`https://wa.me/?text=${message}`, "_blank");
+
+    // If we have the client's phone, pre-fill it
+    if (clientPhone) {
+      let formatted = clientPhone.replace(/\s+/g, "").replace(/^0/, "234");
+      if (!formatted.startsWith("+") && !formatted.startsWith("234")) {
+        formatted = "234" + formatted;
+      }
+      window.open(`https://wa.me/${formatted}?text=${message}`, "_blank");
+    } else {
+      window.open(`https://wa.me/?text=${message}`, "_blank");
+    }
+  };
+
+  /* ---- Native share API ---- */
+  const handleNativeShare = async (url: string, clientName: string) => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Body Scan for ${clientName}`,
+          text: `Hi ${clientName}! Use this link to take your measurement photos:`,
+          url,
+        });
+      } catch {
+        // User cancelled or share failed — fall back to copy
+        handleCopy(url);
+      }
+    } else {
+      handleCopy(url);
+    }
   };
 
   /* ---- Split sessions ---- */
@@ -256,6 +285,9 @@ export default function ScanManagementPage() {
   const completedSessions = sessions.filter(
     (s) => s.status === "completed" || s.status === "failed" || s.status === "expired"
   );
+
+  /* ---- Get selected client info ---- */
+  const selectedClient = clients.find((c) => c._id === selectedClientId);
 
   return (
     <PageTransition>
@@ -267,9 +299,9 @@ export default function ScanManagementPage() {
       >
         {/* ---- Header ---- */}
         <motion.div variants={itemVariants}>
-          <h1 className="text-2xl font-bold text-[#1A1A2E]">Body Scan</h1>
+          <h1 className="text-2xl font-bold text-[#1A1A2E]">AI Body Scan</h1>
           <p className="mt-1 text-sm text-[#1A1A2E]/55">
-            Generate scan links for clients to capture their body measurements
+            Generate scan links for clients to capture their body measurements with AI
           </p>
         </motion.div>
 
@@ -287,12 +319,12 @@ export default function ScanManagementPage() {
                     Generate Scan Link
                   </h2>
                   <p className="text-xs text-[#1A1A2E]/50">
-                    Create a link for your client to take measurement photos
+                    Create a link for your client to take AI measurement photos
                   </p>
                 </div>
               </div>
 
-              {/* Quick Scan — no client needed */}
+              {/* Quick Scan */}
               <div className="rounded-xl border border-[#D4A853]/15 bg-gradient-to-r from-[#D4A853]/[0.04] to-[#C75B39]/[0.04] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -300,7 +332,7 @@ export default function ScanManagementPage() {
                       Quick Scan
                     </p>
                     <p className="mt-0.5 text-xs text-[#1A1A2E]/50">
-                      Generate a link without selecting a client. The client will enter their details when they open the link.
+                      No client needed. They&apos;ll enter their details when they open the link.
                     </p>
                   </div>
                   <Button
@@ -362,10 +394,18 @@ export default function ScanManagementPage() {
                   transition={{ duration: 0.3 }}
                   className="space-y-4 rounded-xl border border-[#C75B39]/10 bg-[#C75B39]/[0.03] p-4"
                 >
+                  {/* Success header */}
+                  <div className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-semibold text-green-700">
+                      Scan link ready for {generatedSession.clientName}
+                    </span>
+                  </div>
+
                   {/* Link URL */}
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-[#1A1A2E]/60">
-                      Scan Link for {generatedSession.clientName}
+                      Scan Link
                     </label>
                     <div className="flex items-center gap-2">
                       <div className="flex-1 truncate rounded-lg border border-[#1A1A2E]/10 bg-white/60 px-3 py-2.5 font-mono text-sm text-[#1A1A2E]">
@@ -386,62 +426,31 @@ export default function ScanManagementPage() {
                     </div>
                   </div>
 
-                  {/* QR Code placeholder + Info */}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {/* QR Code area */}
-                    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[#1A1A2E]/15 bg-white/40 p-6">
-                      <QrCode className="h-16 w-16 text-[#1A1A2E]/20" strokeWidth={1} />
-                      <div className="mt-1 text-center">
-                        <p className="text-xs font-medium text-[#1A1A2E]/50">
-                          QR Code
-                        </p>
-                        <p className="text-[10px] text-[#1A1A2E]/35">
-                          Scan with phone camera
-                        </p>
-                      </div>
-                      {/* Visual QR representation */}
-                      <div className="mt-2 grid grid-cols-7 gap-0.5">
-                        {Array.from({ length: 49 }).map((_, i) => (
-                          <div
-                            key={i}
-                            className="h-2.5 w-2.5 rounded-[1px]"
-                            style={{
-                              backgroundColor:
-                                Math.random() > 0.45
-                                  ? "#1A1A2E"
-                                  : "transparent",
-                            }}
-                          />
-                        ))}
-                      </div>
+                  {/* Session info */}
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="h-4 w-4 text-[#D4A853]" />
+                      <span className="text-[#1A1A2E]/70">
+                        Expires:{" "}
+                        <span className="font-medium text-[#1A1A2E]">
+                          {formatTimeLeft(generatedSession.expiresAt)}
+                        </span>
+                      </span>
                     </div>
-
-                    {/* Session info */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="h-4 w-4 text-[#D4A853]" />
-                        <span className="text-[#1A1A2E]/70">
-                          Expires:{" "}
-                          <span className="font-medium text-[#1A1A2E]">
-                            {formatTimeLeft(generatedSession.expiresAt)}
-                          </span>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Link2 className="h-4 w-4 text-[#C75B39]" />
+                      <span className="text-[#1A1A2E]/70">
+                        Code:{" "}
+                        <span className="font-mono font-medium text-[#1A1A2E]">
+                          {generatedSession.linkCode}
                         </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <Link2 className="h-4 w-4 text-[#C75B39]" />
-                        <span className="text-[#1A1A2E]/70">
-                          Code:{" "}
-                          <span className="font-mono font-medium text-[#1A1A2E]">
-                            {generatedSession.linkCode}
-                          </span>
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <AlertCircle className="h-4 w-4 text-[#1A1A2E]/40" />
-                        <span className="text-xs text-[#1A1A2E]/50">
-                          Link valid for 24 hours. One use only.
-                        </span>
-                      </div>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Smartphone className="h-4 w-4 text-[#1A1A2E]/40" />
+                      <span className="text-xs text-[#1A1A2E]/50">
+                        Client opens on their phone
+                      </span>
                     </div>
                   </div>
 
@@ -453,21 +462,48 @@ export default function ScanManagementPage() {
                       onClick={() =>
                         handleWhatsAppShare(
                           generatedSession.scanUrl,
-                          generatedSession.clientName
+                          generatedSession.clientName,
+                          selectedClient?.phone
                         )
                       }
                     >
                       <MessageCircle className="h-4 w-4" />
-                      Share via WhatsApp
+                      Send via WhatsApp
                     </Button>
                     <Button
                       variant="outline"
                       className="flex-1 gap-2"
+                      onClick={() =>
+                        handleNativeShare(
+                          generatedSession.scanUrl,
+                          generatedSession.clientName
+                        )
+                      }
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Share Link
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="gap-2 sm:flex-none"
                       onClick={() => handleCopy(generatedSession.scanUrl)}
                     >
                       <Copy className="h-4 w-4" />
-                      {copied ? "Copied!" : "Copy Link"}
+                      {copied ? "Copied!" : "Copy"}
                     </Button>
+                  </div>
+
+                  {/* How it works note */}
+                  <div className="rounded-lg bg-[#D4A853]/5 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#D4A853]">
+                      How it works
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-[#1A1A2E]/50">
+                      Your client opens the link, enters their height, and takes
+                      2 photos (front + side). Our AI processes the photos on
+                      their phone and sends you the measurements. Photos are
+                      never uploaded.
+                    </p>
                   </div>
                 </motion.div>
               )}
@@ -540,7 +576,6 @@ export default function ScanManagementPage() {
                 >
                   <GlassCard hover padding="sm">
                     <div className="flex items-center gap-3 px-1">
-                      {/* Icon */}
                       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#C75B39]/12 to-[#D4A853]/12">
                         {session.status === "processing" ? (
                           <Loader2 className="h-5 w-5 animate-spin text-[#D4A853]" />
@@ -549,7 +584,6 @@ export default function ScanManagementPage() {
                         )}
                       </div>
 
-                      {/* Info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate text-sm font-medium text-[#1A1A2E]">
@@ -568,7 +602,6 @@ export default function ScanManagementPage() {
                         </div>
                       </div>
 
-                      {/* Status + Time */}
                       <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
                         <Badge variant={getStatusBadgeVariant(session.status)}>
                           {getStatusLabel(session.status)}
@@ -580,15 +613,32 @@ export default function ScanManagementPage() {
                         )}
                       </div>
 
-                      {/* Copy action */}
+                      {/* Quick actions */}
                       {session.status === "pending" && (
-                        <button
-                          onClick={() => handleCopy(session.scanUrl)}
-                          className="rounded-lg p-2 text-[#1A1A2E]/40 transition-colors hover:bg-[#1A1A2E]/5 hover:text-[#1A1A2E]/70"
-                          aria-label="Copy link"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() =>
+                              handleWhatsAppShare(
+                                session.scanUrl,
+                                session.client?.name || "there",
+                                session.client?.phone
+                              )
+                            }
+                            className="rounded-lg p-2 text-[#25D366] transition-colors hover:bg-[#25D366]/10"
+                            aria-label="Share via WhatsApp"
+                            title="Send via WhatsApp"
+                          >
+                            <MessageCircle className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleCopy(session.scanUrl)}
+                            className="rounded-lg p-2 text-[#1A1A2E]/40 transition-colors hover:bg-[#1A1A2E]/5 hover:text-[#1A1A2E]/70"
+                            aria-label="Copy link"
+                            title="Copy link"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </GlassCard>
@@ -621,12 +671,10 @@ export default function ScanManagementPage() {
                 >
                   <GlassCard padding="sm" className="opacity-80">
                     <div className="flex items-center gap-3 px-1">
-                      {/* Icon */}
                       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#1A1A2E]/5">
                         <ScanLine className="h-5 w-5 text-[#1A1A2E]/30" strokeWidth={1.5} />
                       </div>
 
-                      {/* Info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate text-sm font-medium text-[#1A1A2E]/80">
@@ -642,10 +690,17 @@ export default function ScanManagementPage() {
                           <span className="font-mono">{session.linkCode}</span>
                           <span className="text-[#1A1A2E]/15">|</span>
                           <span>{formatRelativeTime(session.createdAt)}</span>
+                          {session.status === "completed" && session.measurements && (
+                            <>
+                              <span className="text-[#1A1A2E]/15">|</span>
+                              <span className="text-green-600">
+                                {Object.keys(session.measurements).length} measurements
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
 
-                      {/* Status */}
                       <Badge variant={getStatusBadgeVariant(session.status)}>
                         {getStatusLabel(session.status)}
                       </Badge>
@@ -663,7 +718,7 @@ export default function ScanManagementPage() {
             <EmptyState
               icon={ScanLine}
               title="No scan sessions yet"
-              description="Generate a scan link above to get started. Your client will open the link on their phone to capture measurement photos."
+              description="Generate a scan link above to get started. Your client will open the link on their phone to take 2 photos and our AI will extract their body measurements."
             />
           </motion.div>
         )}

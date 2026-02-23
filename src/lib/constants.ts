@@ -1,5 +1,12 @@
 export const APP_NAME = "Stitcha";
 export const APP_DESCRIPTION = "AI-powered body measurement platform for fashion designers";
+
+/* -------------------------------------------------------------------------- */
+/*  APP_URL — Base URL for all generated links (scan links, share links, etc) */
+/*  To switch to a custom domain, either:                                      */
+/*  1. Set NEXT_PUBLIC_APP_URL env var in Vercel dashboard, OR                 */
+/*  2. Change the fallback below from stitcha.vercel.app to your domain       */
+/* -------------------------------------------------------------------------- */
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://stitcha.vercel.app";
 
 export const MEASUREMENT_TYPES = [

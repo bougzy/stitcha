@@ -211,7 +211,8 @@ export default function ClientDetailPage() {
         throw new Error(json.error || "Failed to generate share link");
       }
 
-      const shareUrl = `${window.location.origin}/measurements/${json.data.shareCode}`;
+      // Use the full URL from the API (uses APP_URL / Vercel URL)
+      const shareUrl = json.data.shareUrl || `${window.location.origin}/measurements/${json.data.shareCode}`;
 
       // Try native share first (mobile), fallback to clipboard
       if (navigator.share) {
@@ -248,7 +249,11 @@ export default function ClientDetailPage() {
         throw new Error(json.error || "Failed to generate portal link");
       }
 
-      const portalUrl = `${window.location.origin}/portal/${json.data.shareCode}`;
+      // Construct portal URL from the share code using APP_URL base
+      const baseUrl = json.data.shareUrl
+        ? json.data.shareUrl.replace(/\/measurements\/.*$/, "")
+        : window.location.origin;
+      const portalUrl = `${baseUrl}/portal/${json.data.shareCode}`;
 
       if (navigator.share) {
         await navigator.share({

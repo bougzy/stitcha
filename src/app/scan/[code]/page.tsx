@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Clock,
   ChevronRight,
+  ChevronLeft,
   RotateCcw,
   Upload,
   User,
@@ -17,6 +18,9 @@ import {
   Loader2,
   ImagePlus,
   XCircle,
+  Shield,
+  Lightbulb,
+  Sparkles,
 } from "lucide-react";
 
 import {
@@ -25,6 +29,7 @@ import {
   loadImage,
   calculateMeasurements,
   type MeasurementResult,
+  type BodyGender,
 } from "@/lib/body-measurement";
 
 /* ========================================================================== */
@@ -36,6 +41,7 @@ type ScanStep =
   | "valid"
   | "guest-info"
   | "height"
+  | "gender"
   | "front-photo"
   | "side-photo"
   | "review"
@@ -83,10 +89,37 @@ const stepVariants = {
 };
 
 /* ========================================================================== */
-/*  Height presets                                                              */
+/*  Height presets (common Nigerian heights)                                    */
 /* ========================================================================== */
 
-const HEIGHT_PRESETS = [150, 160, 165, 170, 175, 180];
+const HEIGHT_PRESETS = [150, 155, 160, 163, 165, 168, 170, 173, 175, 178, 180, 185];
+
+/* ========================================================================== */
+/*  Image resize utility                                                       */
+/*  Resizes large photos to reduce MediaPipe processing time                   */
+/* ========================================================================== */
+
+function resizeImageIfNeeded(dataUrl: string, maxDim = 1280): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      if (img.width <= maxDim && img.height <= maxDim) {
+        resolve(dataUrl);
+        return;
+      }
+      const scale = maxDim / Math.max(img.width, img.height);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(dataUrl); return; }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.9));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
 
 /* ========================================================================== */
 /*  Client-Facing Scan Page                                                    */
@@ -103,7 +136,8 @@ export default function ClientScanPage() {
   const [heightCm, setHeightCm] = useState<number | "">("");
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
-  const [guestGender, setGuestGender] = useState<"male" | "female">("female");
+  const [guestGender, setGuestGender] = useState<BodyGender>("female");
+  const [selectedGender, setSelectedGender] = useState<BodyGender>("female");
   const [errorMessage, setErrorMessage] = useState("");
   const [analyzeStatus, setAnalyzeStatus] = useState("");
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
@@ -130,6 +164,11 @@ export default function ClientScanPage() {
 
       const data = json.data as SessionInfo;
       setSessionInfo(data);
+
+      // Pre-set gender from client profile if available
+      if (data.clientGender) {
+        setSelectedGender(data.clientGender as BodyGender);
+      }
 
       switch (data.status) {
         case "pending":
@@ -169,32 +208,33 @@ export default function ClientScanPage() {
   /*  Handle photo capture via file input                                    */
   /* ---------------------------------------------------------------------- */
 
-  const handlePhotoCapture = (
+  const handlePhotoCapture = async (
     e: React.ChangeEvent<HTMLInputElement>,
     type: "front" | "side"
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file
     if (!file.type.startsWith("image/")) {
       setErrorMessage("Please select a photo (image file).");
       return;
     }
 
-    if (file.size > 15 * 1024 * 1024) {
-      setErrorMessage("Photo is too large. Please use a photo under 15MB.");
+    if (file.size > 20 * 1024 * 1024) {
+      setErrorMessage("Photo is too large. Please use a photo under 20MB.");
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const dataUrl = event.target?.result as string;
+      // Resize for faster processing
+      const optimized = await resizeImageIfNeeded(dataUrl);
       if (type === "front") {
-        setFrontPhoto(dataUrl);
+        setFrontPhoto(optimized);
         setStep("side-photo");
       } else {
-        setSidePhoto(dataUrl);
+        setSidePhoto(optimized);
         setStep("review");
       }
     };
@@ -208,42 +248,42 @@ export default function ClientScanPage() {
   const handleAnalyze = async () => {
     if (!frontPhoto || !sidePhoto || !heightCm) return;
 
+    // Determine gender for calibration
+    const gender: BodyGender = sessionInfo?.isQuickScan
+      ? guestGender
+      : selectedGender;
+
     try {
       setStep("analyzing");
       setAnalyzeProgress(0);
-      setAnalyzeStatus("Loading AI model...");
+      setAnalyzeStatus("Loading AI measurement model...");
 
       // Step 1: Initialize PoseLandmarker
       const poseLandmarker = await initPoseLandmarker();
-      setAnalyzeProgress(25);
+      setAnalyzeProgress(20);
 
       // Step 2: Load and detect landmarks on front photo
-      setAnalyzeStatus("Detecting body pose (front)...");
+      setAnalyzeStatus("Analyzing front pose...");
       const frontImg = await loadImage(frontPhoto);
       const frontLandmarks = await detectLandmarks(poseLandmarker, frontImg);
-      setAnalyzeProgress(50);
+      setAnalyzeProgress(45);
 
       if (!frontLandmarks) {
         setStep("error");
         setErrorMessage(
-          "Could not detect your body pose in the front photo. Please make sure your full body is visible and try again."
+          "Could not detect your body in the front photo. Please make sure:\n\n• Your full body is visible (head to toe)\n• You're standing upright\n• The lighting is good\n• There's no one else in the photo"
         );
         return;
       }
 
       // Step 3: Load and detect landmarks on side photo
-      setAnalyzeStatus("Detecting body pose (side)...");
+      setAnalyzeStatus("Analyzing side pose...");
       const sideImg = await loadImage(sidePhoto);
       const sideLandmarks = await detectLandmarks(poseLandmarker, sideImg);
-      setAnalyzeProgress(75);
+      setAnalyzeProgress(70);
 
-      // Side landmarks are optional — we can calculate with front only
-      if (!sideLandmarks) {
-        // Continue without side landmarks — results will be less accurate
-      }
-
-      // Step 4: Calculate measurements
-      setAnalyzeStatus("Calculating measurements...");
+      // Step 4: Calculate measurements (gender-calibrated for African body types)
+      setAnalyzeStatus("Calculating your measurements...");
       const result = calculateMeasurements(
         frontLandmarks,
         sideLandmarks,
@@ -251,17 +291,19 @@ export default function ClientScanPage() {
         frontImg.naturalWidth,
         frontImg.naturalHeight,
         sideImg.naturalWidth,
-        sideImg.naturalHeight
+        sideImg.naturalHeight,
+        gender
       );
-      setAnalyzeProgress(90);
+      setAnalyzeProgress(85);
 
       // Step 5: Send measurements to the API
-      setAnalyzeStatus("Saving measurements...");
+      setAnalyzeStatus("Saving your measurements...");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const payload: Record<string, any> = {
         measurements: result.measurements,
         confidence: result.confidence,
         heightCm: Number(heightCm),
+        gender,
       };
 
       // Include guest info for quick scans
@@ -293,7 +335,7 @@ export default function ClientScanPage() {
       console.error("Analysis error:", err);
       setStep("error");
       setErrorMessage(
-        "An error occurred during analysis. Please try again."
+        "An error occurred during analysis. Please check your internet connection and try again."
       );
     }
   };
@@ -306,6 +348,30 @@ export default function ClientScanPage() {
     setFrontPhoto(null);
     setSidePhoto(null);
     setStep("front-photo");
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /*  Step navigation helpers                                                */
+  /* ---------------------------------------------------------------------- */
+
+  const getStepCount = () => {
+    if (sessionInfo?.isQuickScan) return 4; // guest-info, height, front, side
+    return sessionInfo?.clientGender ? 3 : 4; // height, [gender], front, side
+  };
+
+  const getCurrentStep = () => {
+    if (sessionInfo?.isQuickScan) {
+      if (step === "guest-info") return 1;
+      if (step === "height") return 2;
+      if (step === "front-photo") return 3;
+      if (step === "side-photo") return 4;
+    } else {
+      if (step === "height") return 1;
+      if (step === "gender") return 2;
+      if (step === "front-photo") return sessionInfo?.clientGender ? 2 : 3;
+      if (step === "side-photo") return sessionInfo?.clientGender ? 3 : 4;
+    }
+    return 1;
   };
 
   /* ====================================================================== */
@@ -359,7 +425,6 @@ export default function ClientScanPage() {
                 Please wait a moment
               </p>
             </div>
-            {/* Loading bar */}
             <div className="h-1 w-40 overflow-hidden rounded-full bg-[#C75B39]/10">
               <div className="h-full w-1/2 animate-[shimmer_1.5s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-[#C75B39]/0 via-[#C75B39] to-[#C75B39]/0" />
             </div>
@@ -380,7 +445,6 @@ export default function ClientScanPage() {
           >
             {/* Welcome card */}
             <div className="rounded-2xl border border-white/30 bg-white/50 p-6 shadow-[0_8px_32px_rgba(26,26,46,0.06)] backdrop-blur-md">
-              {/* Designer avatar */}
               <div className="mb-4 flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#C75B39]/15 to-[#D4A853]/15">
                   <User className="h-6 w-6 text-[#C75B39]" />
@@ -409,8 +473,8 @@ export default function ClientScanPage() {
                 </h1>
                 <p className="mt-2 text-sm leading-relaxed text-[#1A1A2E]/65">
                   {sessionInfo.isQuickScan
-                    ? "Welcome! We'll guide you through taking two quick photos to capture your body measurements accurately."
-                    : "Your designer needs your body measurements. We will guide you through taking two quick photos so we can measure you accurately."}
+                    ? "Welcome! We'll guide you through taking two quick photos to capture your body measurements using AI."
+                    : "Your designer needs your body measurements. We'll guide you through taking two quick photos so our AI can measure you accurately."}
                 </p>
               </div>
             </div>
@@ -424,28 +488,35 @@ export default function ClientScanPage() {
               <InstructionItem
                 icon={Shirt}
                 title="Wear fitted clothing"
-                description="Tight or fitted clothes help us measure accurately. Avoid baggy or loose outfits."
+                description="Tight or fitted clothes give the best results. Avoid baggy outfits like agbada or flowing gowns."
               />
               <InstructionItem
                 icon={Ruler}
-                title="Stand 2 meters from the camera"
-                description="Ask someone to help take the photo, or use a timer. Full body must be visible."
+                title="Full body in frame"
+                description="Stand 2-3 meters from the camera. Ask someone to help or use a timer. Head to toe must be visible."
               />
               <InstructionItem
                 icon={Camera}
                 title="Two photos needed"
-                description="We need one photo from the front and one from the side. Stand straight with arms slightly away from your body."
+                description="One from the front, one from the side. Stand straight with arms slightly away from your body."
+              />
+              <InstructionItem
+                icon={Shield}
+                title="Your photos stay private"
+                description="Photos are processed on your phone and never uploaded. Only measurements are saved."
               />
             </div>
 
             {/* Start button */}
             <div className="mt-auto pt-8">
               <button
-                onClick={() => setStep(sessionInfo.isQuickScan ? "guest-info" : "height")}
+                onClick={() =>
+                  setStep(sessionInfo.isQuickScan ? "guest-info" : "height")
+                }
                 className="flex w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98] hover:shadow-xl"
               >
-                <Camera className="h-5 w-5" />
-                Start Measurement Scan
+                <Sparkles className="h-5 w-5" />
+                Start AI Measurement
                 <ChevronRight className="h-5 w-5" />
               </button>
             </div>
@@ -453,7 +524,7 @@ export default function ClientScanPage() {
         )}
 
         {/* ============================================================== */}
-        {/*  GUEST INFO - Collect name/phone for quick scans                */}
+        {/*  GUEST INFO                                                     */}
         {/* ============================================================== */}
         {step === "guest-info" && (
           <motion.div
@@ -464,7 +535,9 @@ export default function ClientScanPage() {
             exit="exit"
             className="flex flex-1 flex-col"
           >
-            <div className="text-center">
+            <ProgressBar current={1} total={getStepCount()} />
+
+            <div className="mt-4 text-center">
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
                 <User className="h-8 w-8 text-[#C75B39]" />
               </div>
@@ -472,12 +545,11 @@ export default function ClientScanPage() {
                 Your Details
               </h2>
               <p className="mt-1 text-sm text-[#1A1A2E]/55">
-                Please enter your information so your designer can identify your measurements
+                So your designer can identify your measurements
               </p>
             </div>
 
             <div className="mt-6 space-y-4">
-              {/* Name */}
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">
                   Full Name
@@ -491,7 +563,6 @@ export default function ClientScanPage() {
                 />
               </div>
 
-              {/* Phone */}
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">
                   Phone Number
@@ -500,12 +571,11 @@ export default function ClientScanPage() {
                   type="tel"
                   value={guestPhone}
                   onChange={(e) => setGuestPhone(e.target.value)}
-                  placeholder="e.g. +234 801 234 5678"
+                  placeholder="e.g. 0801 234 5678"
                   className="w-full rounded-xl border border-[#1A1A2E]/15 bg-white/60 px-4 py-3 text-sm text-[#1A1A2E] shadow-sm backdrop-blur-sm transition-all placeholder:text-[#1A1A2E]/30 focus:border-[#C75B39]/40 focus:outline-none focus:ring-2 focus:ring-[#C75B39]/15"
                 />
               </div>
 
-              {/* Gender */}
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[#1A1A2E]/70">
                   Gender
@@ -521,22 +591,16 @@ export default function ClientScanPage() {
                           : "border border-[#1A1A2E]/10 bg-white/50 text-[#1A1A2E]/70 backdrop-blur-sm hover:bg-white/70"
                       }`}
                     >
-                      {g}
+                      {g === "female" ? "Female" : "Male"}
                     </button>
                   ))}
                 </div>
+                <p className="mt-1.5 text-[10px] text-[#1A1A2E]/40">
+                  Helps our AI calibrate measurements for your body type
+                </p>
               </div>
             </div>
 
-            {/* Info note */}
-            <div className="mt-5 rounded-xl bg-[#D4A853]/8 p-3 text-center">
-              <p className="text-xs leading-relaxed text-[#1A1A2E]/60">
-                Your details will be shared with your designer to help manage your
-                fitting and orders.
-              </p>
-            </div>
-
-            {/* Continue button */}
             <div className="mt-auto pt-8">
               <button
                 onClick={() => setStep("height")}
@@ -551,7 +615,7 @@ export default function ClientScanPage() {
         )}
 
         {/* ============================================================== */}
-        {/*  HEIGHT - Enter height for scale calibration                     */}
+        {/*  HEIGHT                                                         */}
         {/* ============================================================== */}
         {step === "height" && (
           <motion.div
@@ -562,10 +626,10 @@ export default function ClientScanPage() {
             exit="exit"
             className="flex flex-1 flex-col"
           >
-            {/* Header */}
-            <div className="text-center">
+            <ProgressBar current={getCurrentStep()} total={getStepCount()} />
+
+            <div className="mt-4 text-center">
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
-                {/* Body / height icon */}
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -575,14 +639,12 @@ export default function ClientScanPage() {
                   strokeLinejoin="round"
                   className="h-8 w-8 text-[#C75B39]"
                 >
-                  {/* Person silhouette */}
                   <circle cx="12" cy="4" r="2" />
                   <line x1="12" y1="6" x2="12" y2="16" />
                   <line x1="12" y1="10" x2="8" y2="13" />
                   <line x1="12" y1="10" x2="16" y2="13" />
                   <line x1="12" y1="16" x2="9" y2="21" />
                   <line x1="12" y1="16" x2="15" y2="21" />
-                  {/* Height arrow */}
                   <line x1="20" y1="2" x2="20" y2="22" />
                   <line x1="18.5" y1="2" x2="21.5" y2="2" />
                   <line x1="18.5" y1="22" x2="21.5" y2="22" />
@@ -592,11 +654,10 @@ export default function ClientScanPage() {
                 What is your height?
               </h2>
               <p className="mt-1 text-sm text-[#1A1A2E]/55">
-                We need your height to accurately calculate your measurements
+                This is the key reference for all your measurements
               </p>
             </div>
 
-            {/* Height input */}
             <div className="mt-6">
               <div className="relative mx-auto max-w-[220px]">
                 <input
@@ -623,42 +684,141 @@ export default function ClientScanPage() {
               </div>
             </div>
 
-            {/* Quick presets */}
             <div className="mt-5">
               <p className="mb-3 text-center text-xs font-medium text-[#1A1A2E]/40">
-                Quick select
+                Quick select (tap your height)
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {HEIGHT_PRESETS.map((h) => (
                   <button
                     key={h}
                     onClick={() => setHeightCm(h)}
-                    className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 active:scale-95 ${
+                    className={`rounded-xl px-3.5 py-2 text-sm font-semibold transition-all duration-200 active:scale-95 ${
                       heightCm === h
                         ? "bg-gradient-to-r from-[#C75B39] to-[#D4A853] text-white shadow-md"
                         : "border border-[#1A1A2E]/10 bg-white/50 text-[#1A1A2E]/70 backdrop-blur-sm hover:bg-white/70"
                     }`}
                   >
-                    {h} cm
+                    {h}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Info note */}
-            <div className="mt-5 rounded-xl bg-[#D4A853]/8 p-3 text-center">
+            <div className="mt-5 flex items-start gap-2.5 rounded-xl bg-[#D4A853]/8 p-3">
+              <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-[#D4A853]" />
               <p className="text-xs leading-relaxed text-[#1A1A2E]/60">
-                Your height is used as a reference scale to convert your
-                photo proportions into real-world measurements.
+                Don&apos;t know your exact height? Stand against a wall, mark
+                the top of your head, and measure from the floor to the mark.
               </p>
             </div>
 
-            {/* Continue button */}
-            <div className="mt-auto pt-8">
+            <div className="mt-auto flex gap-3 pt-8">
+              <button
+                onClick={() =>
+                  setStep(sessionInfo?.isQuickScan ? "guest-info" : "valid")
+                }
+                className="flex items-center justify-center rounded-2xl border border-[#1A1A2E]/10 bg-white/50 px-4 py-4.5 text-[#1A1A2E]/60 transition-colors active:bg-white/70"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => {
+                  if (!sessionInfo?.isQuickScan && !sessionInfo?.clientGender) {
+                    setStep("gender");
+                  } else {
+                    setStep("front-photo");
+                  }
+                }}
+                disabled={!heightCm}
+                className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100"
+              >
+                Continue
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ============================================================== */}
+        {/*  GENDER - For non-quick scans where client gender isn't set      */}
+        {/* ============================================================== */}
+        {step === "gender" && (
+          <motion.div
+            key="gender"
+            variants={stepVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="flex flex-1 flex-col"
+          >
+            <ProgressBar current={2} total={getStepCount()} />
+
+            <div className="mt-4 text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
+                <User className="h-8 w-8 text-[#C75B39]" />
+              </div>
+              <h2 className="text-lg font-bold text-[#1A1A2E]">
+                Select Your Gender
+              </h2>
+              <p className="mt-1 text-sm text-[#1A1A2E]/55">
+                Helps our AI calibrate for your body type
+              </p>
+            </div>
+
+            <div className="mt-8 flex gap-4">
+              {(["female", "male"] as const).map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setSelectedGender(g)}
+                  className={`flex flex-1 flex-col items-center gap-3 rounded-2xl px-4 py-6 transition-all duration-200 active:scale-[0.97] ${
+                    selectedGender === g
+                      ? "border-2 border-[#C75B39]/30 bg-gradient-to-br from-[#C75B39]/8 to-[#D4A853]/8 shadow-md"
+                      : "border-2 border-[#1A1A2E]/8 bg-white/40 hover:bg-white/60"
+                  }`}
+                >
+                  <div
+                    className={`flex h-14 w-14 items-center justify-center rounded-2xl ${
+                      selectedGender === g
+                        ? "bg-gradient-to-br from-[#C75B39] to-[#D4A853]"
+                        : "bg-[#1A1A2E]/8"
+                    }`}
+                  >
+                    <span className="text-2xl">
+                      {g === "female" ? "👩" : "👨"}
+                    </span>
+                  </div>
+                  <span
+                    className={`text-base font-semibold capitalize ${
+                      selectedGender === g
+                        ? "text-[#C75B39]"
+                        : "text-[#1A1A2E]/60"
+                    }`}
+                  >
+                    {g}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 flex items-start gap-2.5 rounded-xl bg-[#D4A853]/8 p-3">
+              <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-[#D4A853]" />
+              <p className="text-xs leading-relaxed text-[#1A1A2E]/60">
+                Our AI uses different body proportion models for male and
+                female measurements, calibrated for African body types.
+              </p>
+            </div>
+
+            <div className="mt-auto flex gap-3 pt-8">
+              <button
+                onClick={() => setStep("height")}
+                className="flex items-center justify-center rounded-2xl border border-[#1A1A2E]/10 bg-white/50 px-4 py-4.5 text-[#1A1A2E]/60 transition-colors active:bg-white/70"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
               <button
                 onClick={() => setStep("front-photo")}
-                disabled={!heightCm}
-                className="flex w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100"
+                className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98]"
               >
                 Continue
                 <ChevronRight className="h-5 w-5" />
@@ -679,8 +839,7 @@ export default function ClientScanPage() {
             exit="exit"
             className="flex flex-1 flex-col"
           >
-            {/* Progress indicator */}
-            <ProgressBar current={sessionInfo?.isQuickScan ? 3 : 2} total={sessionInfo?.isQuickScan ? 4 : 3} />
+            <ProgressBar current={getCurrentStep()} total={getStepCount()} />
 
             <h2 className="mt-4 text-center text-lg font-bold text-[#1A1A2E]">
               Front Photo
@@ -692,33 +851,24 @@ export default function ClientScanPage() {
             {/* Body outline guide */}
             <div className="relative mx-auto mt-5 flex w-full max-w-[280px] flex-col items-center">
               <div className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-[#C75B39]/25 bg-white/30 backdrop-blur-sm">
-                {/* Body silhouette - front facing */}
                 <div className="relative h-[75%] w-[40%]">
-                  {/* Head */}
                   <div className="mx-auto h-[14%] w-[38%] rounded-full border-2 border-[#C75B39]/20" />
-                  {/* Neck */}
                   <div className="mx-auto h-[3%] w-[15%] border-x-2 border-[#C75B39]/20" />
-                  {/* Torso */}
                   <div className="mx-auto h-[30%] w-[70%] rounded-t-lg border-2 border-b-0 border-[#C75B39]/20" />
-                  {/* Hips */}
                   <div className="mx-auto h-[8%] w-[75%] border-x-2 border-[#C75B39]/20" />
-                  {/* Left leg */}
                   <div className="flex h-[42%] justify-center gap-[10%]">
                     <div className="h-full w-[30%] rounded-b-lg border-2 border-t-0 border-[#C75B39]/20" />
                     <div className="h-full w-[30%] rounded-b-lg border-2 border-t-0 border-[#C75B39]/20" />
                   </div>
-                  {/* Arms guide lines */}
                   <div className="absolute left-[-22%] top-[19%] h-[38%] w-[15%] rounded-b-lg border-2 border-t-0 border-[#C75B39]/15" />
                   <div className="absolute right-[-22%] top-[19%] h-[38%] w-[15%] rounded-b-lg border-2 border-t-0 border-[#C75B39]/15" />
                 </div>
 
-                {/* Corner guides */}
                 <div className="absolute left-3 top-3 h-6 w-6 rounded-tl-lg border-l-2 border-t-2 border-[#C75B39]/40" />
                 <div className="absolute right-3 top-3 h-6 w-6 rounded-tr-lg border-r-2 border-t-2 border-[#C75B39]/40" />
                 <div className="absolute bottom-3 left-3 h-6 w-6 rounded-bl-lg border-b-2 border-l-2 border-[#C75B39]/40" />
                 <div className="absolute bottom-3 right-3 h-6 w-6 rounded-br-lg border-b-2 border-r-2 border-[#C75B39]/40" />
 
-                {/* Label */}
                 <div className="absolute bottom-4 left-0 right-0 text-center">
                   <span className="rounded-full bg-[#C75B39]/10 px-3 py-1 text-xs font-medium text-[#C75B39]">
                     FRONT VIEW
@@ -727,15 +877,13 @@ export default function ClientScanPage() {
               </div>
             </div>
 
-            {/* Tips */}
-            <div className="mt-4 rounded-xl bg-[#D4A853]/8 p-3 text-center">
-              <p className="text-xs leading-relaxed text-[#1A1A2E]/60">
-                Make sure your full body is visible from head to toe. Stand on a
-                plain background if possible.
-              </p>
+            <div className="mt-4 space-y-1.5">
+              <PhotoTip text="Full body visible — head to toe" />
+              <PhotoTip text="Arms slightly away from body" />
+              <PhotoTip text="Good lighting, plain background" />
+              <PhotoTip text="Stand straight, face the camera" />
             </div>
 
-            {/* Capture button */}
             <div className="mt-auto pt-6">
               <button
                 onClick={() => frontInputRef.current?.click()}
@@ -744,10 +892,8 @@ export default function ClientScanPage() {
                 <Camera className="h-5 w-5" />
                 Take Front Photo
               </button>
-              {/* Or choose from gallery */}
               <button
                 onClick={() => {
-                  // Create a non-capture input to pick from gallery
                   const input = document.createElement("input");
                   input.type = "file";
                   input.accept = "image/*";
@@ -779,17 +925,15 @@ export default function ClientScanPage() {
             exit="exit"
             className="flex flex-1 flex-col"
           >
-            {/* Progress */}
-            <ProgressBar current={sessionInfo?.isQuickScan ? 4 : 3} total={sessionInfo?.isQuickScan ? 4 : 3} />
+            <ProgressBar current={getCurrentStep()} total={getStepCount()} />
 
             <h2 className="mt-4 text-center text-lg font-bold text-[#1A1A2E]">
               Side Photo
             </h2>
             <p className="mt-1 text-center text-sm text-[#1A1A2E]/55">
-              Turn sideways. Keep your arms relaxed at your sides.
+              Turn sideways (left or right). Keep your arms relaxed.
             </p>
 
-            {/* Front photo preview - small */}
             {frontPhoto && (
               <div className="mt-3 flex items-center justify-center gap-2">
                 <div className="h-12 w-9 overflow-hidden rounded-lg border border-green-400/30 bg-green-50/50">
@@ -806,30 +950,21 @@ export default function ClientScanPage() {
               </div>
             )}
 
-            {/* Body outline guide - side view */}
             <div className="relative mx-auto mt-4 flex w-full max-w-[280px] flex-col items-center">
               <div className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-[#D4A853]/25 bg-white/30 backdrop-blur-sm">
-                {/* Side body silhouette */}
                 <div className="relative h-[75%] w-[25%]">
-                  {/* Head */}
                   <div className="mx-auto h-[14%] w-[85%] rounded-full border-2 border-[#D4A853]/20" />
-                  {/* Neck */}
                   <div className="mx-auto h-[3%] w-[40%] border-x-2 border-[#D4A853]/20" />
-                  {/* Torso - side is narrower */}
                   <div className="mx-auto h-[30%] w-full rounded-t-md border-2 border-b-0 border-[#D4A853]/20" />
-                  {/* Hips */}
                   <div className="mx-auto h-[8%] w-full border-x-2 border-[#D4A853]/20" />
-                  {/* Legs */}
                   <div className="mx-auto h-[42%] w-[75%] rounded-b-md border-2 border-t-0 border-[#D4A853]/20" />
                 </div>
 
-                {/* Corner guides */}
                 <div className="absolute left-3 top-3 h-6 w-6 rounded-tl-lg border-l-2 border-t-2 border-[#D4A853]/40" />
                 <div className="absolute right-3 top-3 h-6 w-6 rounded-tr-lg border-r-2 border-t-2 border-[#D4A853]/40" />
                 <div className="absolute bottom-3 left-3 h-6 w-6 rounded-bl-lg border-b-2 border-l-2 border-[#D4A853]/40" />
                 <div className="absolute bottom-3 right-3 h-6 w-6 rounded-br-lg border-b-2 border-r-2 border-[#D4A853]/40" />
 
-                {/* Label */}
                 <div className="absolute bottom-4 left-0 right-0 text-center">
                   <span className="rounded-full bg-[#D4A853]/10 px-3 py-1 text-xs font-medium text-[#D4A853]">
                     SIDE VIEW
@@ -838,15 +973,12 @@ export default function ClientScanPage() {
               </div>
             </div>
 
-            {/* Tips */}
-            <div className="mt-4 rounded-xl bg-[#D4A853]/8 p-3 text-center">
-              <p className="text-xs leading-relaxed text-[#1A1A2E]/60">
-                Stand naturally from the side. Keep your posture straight and
-                look forward.
-              </p>
+            <div className="mt-4 space-y-1.5">
+              <PhotoTip text="Turn 90 degrees — left or right side" />
+              <PhotoTip text="Stand naturally, look forward" />
+              <PhotoTip text="Arms at your sides or slightly forward" />
             </div>
 
-            {/* Capture buttons */}
             <div className="mt-auto pt-6">
               <button
                 onClick={() => sideInputRef.current?.click()}
@@ -895,9 +1027,7 @@ export default function ClientScanPage() {
               Make sure both photos are clear and your full body is visible
             </p>
 
-            {/* Photo previews */}
             <div className="mt-5 grid grid-cols-2 gap-3">
-              {/* Front */}
               <div className="space-y-2">
                 <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border-2 border-green-400/30 bg-white/30 shadow-sm">
                   {frontPhoto && (
@@ -918,7 +1048,6 @@ export default function ClientScanPage() {
                 </div>
               </div>
 
-              {/* Side */}
               <div className="space-y-2">
                 <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border-2 border-green-400/30 bg-white/30 shadow-sm">
                   {sidePhoto && (
@@ -940,21 +1069,27 @@ export default function ClientScanPage() {
               </div>
             </div>
 
-            {/* Checklist */}
-            <div className="mt-5 space-y-2">
+            <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-emerald-500/5 p-3">
+              <Shield className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <p className="text-xs leading-relaxed text-emerald-700/70">
+                Your photos are processed by AI on this device only. They are
+                never uploaded or stored. Only measurements are saved.
+              </p>
+            </div>
+
+            <div className="mt-3 space-y-2">
               <ReviewCheckItem text="Full body visible from head to toe" />
-              <ReviewCheckItem text="Photo is clear and well lit" />
+              <ReviewCheckItem text="Photos are clear and well lit" />
               <ReviewCheckItem text="Standing straight with arms slightly out" />
             </div>
 
-            {/* Action buttons */}
             <div className="mt-auto space-y-3 pt-6">
               <button
                 onClick={handleAnalyze}
                 className="flex w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4.5 text-base font-semibold text-white shadow-lg transition-all duration-200 active:scale-[0.98]"
               >
-                <Upload className="h-5 w-5" />
-                Submit Photos
+                <Sparkles className="h-5 w-5" />
+                Analyze My Measurements
               </button>
               <button
                 onClick={resetPhotos}
@@ -968,7 +1103,7 @@ export default function ClientScanPage() {
         )}
 
         {/* ============================================================== */}
-        {/*  ANALYZING - Client-side AI pose detection                      */}
+        {/*  ANALYZING                                                      */}
         {/* ============================================================== */}
         {step === "analyzing" && (
           <motion.div
@@ -979,14 +1114,11 @@ export default function ClientScanPage() {
             exit="exit"
             className="flex flex-1 flex-col items-center justify-center gap-6"
           >
-            {/* Processing animation */}
             <div className="relative">
-              {/* Outer ring */}
               <div
                 className="absolute inset-[-8px] animate-spin rounded-full border-2 border-transparent border-t-[#C75B39]/40"
                 style={{ animationDuration: "2s" }}
               />
-              {/* Middle ring */}
               <div
                 className="absolute inset-[-4px] animate-spin rounded-full border-2 border-transparent border-b-[#D4A853]/30"
                 style={{
@@ -994,7 +1126,6 @@ export default function ClientScanPage() {
                   animationDirection: "reverse",
                 }}
               />
-              {/* Icon */}
               <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
                 <Ruler className="h-9 w-9 text-[#C75B39]" />
               </div>
@@ -1002,14 +1133,13 @@ export default function ClientScanPage() {
 
             <div className="text-center">
               <p className="text-lg font-semibold text-[#1A1A2E]">
-                Analysing your photos...
+                AI is measuring you...
               </p>
               <p className="mt-2 text-sm leading-relaxed text-[#1A1A2E]/50">
                 {analyzeStatus}
               </p>
             </div>
 
-            {/* Progress bar */}
             <div className="w-56">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#C75B39]/10">
                 <motion.div
@@ -1024,7 +1154,29 @@ export default function ClientScanPage() {
               </p>
             </div>
 
-            {/* Animated dots */}
+            <div className="space-y-1.5 text-center">
+              {analyzeProgress >= 20 && (
+                <p className="text-[10px] text-green-600">
+                  {analyzeProgress > 20 ? "✓" : "..."} AI model loaded
+                </p>
+              )}
+              {analyzeProgress >= 45 && (
+                <p className="text-[10px] text-green-600">
+                  {analyzeProgress > 45 ? "✓" : "..."} Front pose detected
+                </p>
+              )}
+              {analyzeProgress >= 70 && (
+                <p className="text-[10px] text-green-600">
+                  {analyzeProgress > 70 ? "✓" : "..."} Side pose analyzed
+                </p>
+              )}
+              {analyzeProgress >= 85 && (
+                <p className="text-[10px] text-green-600">
+                  {analyzeProgress > 85 ? "✓" : "..."} Measurements calculated
+                </p>
+              )}
+            </div>
+
             <div className="flex gap-1.5">
               {[0, 1, 2].map((i) => (
                 <motion.div
@@ -1055,7 +1207,6 @@ export default function ClientScanPage() {
             exit="exit"
             className="flex flex-1 flex-col items-center justify-center gap-5"
           >
-            {/* Success icon */}
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
@@ -1093,39 +1244,23 @@ export default function ClientScanPage() {
               </p>
             </motion.div>
 
-            {/* Measurement results */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.5 }}
               className="mt-2 w-full rounded-2xl border border-green-200/40 bg-green-50/30 p-5 backdrop-blur-sm"
             >
+              <p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-wider text-green-600/70">
+                Your Measurements
+              </p>
               <div className="grid grid-cols-3 gap-3 text-center">
                 {[
-                  {
-                    label: "Bust",
-                    key: "bust",
-                  },
-                  {
-                    label: "Waist",
-                    key: "waist",
-                  },
-                  {
-                    label: "Hips",
-                    key: "hips",
-                  },
-                  {
-                    label: "Shoulder",
-                    key: "shoulder",
-                  },
-                  {
-                    label: "Arm",
-                    key: "armLength",
-                  },
-                  {
-                    label: "Inseam",
-                    key: "inseam",
-                  },
+                  { label: "Bust", key: "bust" },
+                  { label: "Waist", key: "waist" },
+                  { label: "Hips", key: "hips" },
+                  { label: "Shoulder", key: "shoulder" },
+                  { label: "Arm", key: "armLength" },
+                  { label: "Inseam", key: "inseam" },
                 ].map((m) => (
                   <div key={m.label}>
                     <p className="text-xs text-[#1A1A2E]/40">{m.label}</p>
@@ -1138,7 +1273,6 @@ export default function ClientScanPage() {
                 ))}
               </div>
 
-              {/* Confidence */}
               {measurementResult && (
                 <div className="mt-4 flex items-center justify-center gap-2 border-t border-green-200/30 pt-3">
                   <div className="h-2 w-2 rounded-full bg-green-400" />
@@ -1240,13 +1374,12 @@ export default function ClientScanPage() {
               <h2 className="text-xl font-bold text-[#1A1A2E]">
                 Something Went Wrong
               </h2>
-              <p className="mt-2 text-sm leading-relaxed text-[#1A1A2E]/55">
+              <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[#1A1A2E]/55">
                 {errorMessage ||
                   "An error occurred. Please try again or contact your designer."}
               </p>
             </div>
             <div className="flex gap-3">
-              {/* Retry from review (if photos exist) */}
               {frontPhoto && sidePhoto && (
                 <button
                   onClick={() => setStep("review")}
@@ -1257,7 +1390,12 @@ export default function ClientScanPage() {
                 </button>
               )}
               <button
-                onClick={validateLink}
+                onClick={() => {
+                  setFrontPhoto(null);
+                  setSidePhoto(null);
+                  setErrorMessage("");
+                  validateLink();
+                }}
                 className="mt-2 flex items-center gap-2 rounded-xl border border-[#1A1A2E]/10 bg-white/60 px-5 py-3 text-sm font-medium text-[#1A1A2E]/70 transition-colors active:bg-white/80"
               >
                 <RotateCcw className="h-4 w-4" />
@@ -1295,6 +1433,15 @@ function InstructionItem({
           {description}
         </p>
       </div>
+    </div>
+  );
+}
+
+function PhotoTip({ text }: { text: string }) {
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#C75B39]/40" />
+      <span className="text-xs text-[#1A1A2E]/55">{text}</span>
     </div>
   );
 }
