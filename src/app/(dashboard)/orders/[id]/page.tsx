@@ -5,17 +5,26 @@ import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
+  Banknote,
   Calendar,
+  Check,
   Clock,
+  CreditCard,
   DollarSign,
   Edit,
   FileDown,
   Package,
+  Plus,
   Ruler,
   Shirt,
+  Smartphone,
   StickyNote,
   Trash2,
   User,
+  Camera,
+  ImageIcon,
+  Wallet,
+  X,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -37,9 +46,10 @@ import {
 } from "@/components/ui/dialog";
 import { StatusProgress } from "@/components/orders/status-progress";
 import { OrderTimeline } from "@/components/orders/order-timeline";
+import { WhatsAppActions } from "@/components/common/whatsapp-actions";
 import { ORDER_STATUSES, MEASUREMENT_TYPES } from "@/lib/constants";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
-import type { Order, OrderStatus, Measurements } from "@/types";
+import type { Order, OrderStatus, Measurements, Payment, PaymentMethod } from "@/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Status badge helper                                                       */
@@ -112,6 +122,11 @@ export default function OrderDetailPage() {
   const [newStatus, setNewStatus] = useState<string>("");
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [recordingPayment, setRecordingPayment] = useState(false);
 
   /* ---- Fetch order ---- */
   const fetchOrder = useCallback(async () => {
@@ -322,6 +337,112 @@ export default function OrderDetailPage() {
     doc.save(fileName);
   };
 
+  /* ---- Record payment ---- */
+  const handleRecordPayment = async () => {
+    const amount = parseFloat(paymentAmount);
+    if (!amount || amount <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+
+    try {
+      setRecordingPayment(true);
+      const res = await fetch(`/api/orders/${orderId}/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          method: paymentMethod,
+          note: paymentNote || undefined,
+        }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        throw new Error(json.error || "Failed to record payment");
+      }
+
+      toast.success(`Payment of ${formatCurrency(amount)} recorded`);
+      setShowPaymentForm(false);
+      setPaymentAmount("");
+      setPaymentMethod("cash");
+      setPaymentNote("");
+      fetchOrder();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record payment");
+    } finally {
+      setRecordingPayment(false);
+    }
+  };
+
+  const handleDeletePayment = async (paymentId: string) => {
+    try {
+      const res = await fetch(
+        `/api/orders/${orderId}/payments?paymentId=${paymentId}`,
+        { method: "DELETE" }
+      );
+      const json = await res.json();
+
+      if (!json.success) {
+        throw new Error(json.error || "Failed to remove payment");
+      }
+
+      toast.success("Payment removed");
+      fetchOrder();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove payment");
+    }
+  };
+
+  /* ---- Gallery upload ---- */
+  const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 500_000) {
+      toast.error("Image too large. Max 500KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch(`/api/orders/${orderId}/gallery`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: reader.result }),
+        });
+        const json = await res.json();
+
+        if (!json.success) {
+          throw new Error(json.error);
+        }
+
+        toast.success("Photo added to gallery");
+        fetchOrder();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to upload");
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleGalleryDelete = async (index: number) => {
+    try {
+      const res = await fetch(
+        `/api/orders/${orderId}/gallery?index=${index}`,
+        { method: "DELETE" }
+      );
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      toast.success("Photo removed");
+      fetchOrder();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove");
+    }
+  };
+
   /* ---- Loading state ---- */
   if (loading) {
     return (
@@ -500,6 +621,20 @@ export default function OrderDetailPage() {
                       </p>
                     )}
                   </div>
+                  {/* WhatsApp actions */}
+                  {order.client.phone && (
+                    <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
+                      <WhatsAppActions
+                        phone={order.client.phone}
+                        clientName={order.client.name}
+                        order={{
+                          title: order.title,
+                          status: order.status,
+                          balance,
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </GlassCard>
@@ -554,20 +689,40 @@ export default function OrderDetailPage() {
             </GlassCard>
           </motion.div>
 
-          {/* Financial section */}
+          {/* Financial section with payment tracker */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25 }}
           >
             <GlassCard padding="lg" className="h-full">
-              <div className="mb-4 flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-[#D4A853]" />
-                <h2 className="text-lg font-semibold text-[#1A1A2E]">
-                  Payment
-                </h2>
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5 text-[#D4A853]" />
+                  <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                    Payment
+                  </h2>
+                </div>
+                {order.paymentStatus && (
+                  <span
+                    className={cn(
+                      "rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider",
+                      order.paymentStatus === "paid"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : order.paymentStatus === "partial"
+                        ? "bg-amber-100 text-amber-700"
+                        : order.paymentStatus === "overdue"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-gray-100 text-gray-600"
+                    )}
+                  >
+                    {order.paymentStatus}
+                  </span>
+                )}
               </div>
-              <div className="space-y-3">
+
+              {/* Summary */}
+              <div className="space-y-2">
                 <div className="flex items-center justify-between rounded-xl bg-[#C75B39]/5 px-4 py-3">
                   <span className="text-xs font-medium text-[#1A1A2E]/55">
                     Total Price
@@ -578,7 +733,7 @@ export default function OrderDetailPage() {
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-emerald-500/5 px-4 py-3">
                   <span className="text-xs font-medium text-[#1A1A2E]/55">
-                    Deposit Paid
+                    Total Paid
                   </span>
                   <span className="text-sm font-semibold text-emerald-600">
                     {formatCurrency(order.depositPaid || 0)}
@@ -594,10 +749,163 @@ export default function OrderDetailPage() {
                       balance > 0 ? "text-[#C75B39]" : "text-emerald-600"
                     )}
                   >
-                    {formatCurrency(balance)}
+                    {balance <= 0 ? (
+                      <span className="flex items-center gap-1">
+                        <Check className="h-3.5 w-3.5" /> Paid in full
+                      </span>
+                    ) : (
+                      formatCurrency(balance)
+                    )}
                   </span>
                 </div>
+
+                {/* Progress bar */}
+                <div className="pt-1">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-[#1A1A2E]/6">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-500",
+                        balance <= 0
+                          ? "bg-emerald-500"
+                          : (order.depositPaid || 0) > 0
+                          ? "bg-[#D4A853]"
+                          : "bg-[#1A1A2E]/10"
+                      )}
+                      style={{
+                        width: `${Math.min(100, ((order.depositPaid || 0) / order.price) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-1 text-right text-[10px] text-[#1A1A2E]/35">
+                    {Math.round(((order.depositPaid || 0) / order.price) * 100)}% paid
+                  </p>
+                </div>
               </div>
+
+              {/* Payment history */}
+              {order.payments && order.payments.length > 0 && (
+                <div className="mt-4 border-t border-[#1A1A2E]/6 pt-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#1A1A2E]/35">
+                    Payment History
+                  </p>
+                  <div className="space-y-1.5">
+                    {order.payments.map((p: Payment, i: number) => (
+                      <div
+                        key={p._id || i}
+                        className="group flex items-center gap-2 rounded-lg bg-white/50 px-3 py-2"
+                      >
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                          {p.method === "cash" ? (
+                            <Banknote className="h-3.5 w-3.5" />
+                          ) : p.method === "bank_transfer" ? (
+                            <Wallet className="h-3.5 w-3.5" />
+                          ) : p.method === "card" ? (
+                            <CreditCard className="h-3.5 w-3.5" />
+                          ) : p.method === "mobile_money" ? (
+                            <Smartphone className="h-3.5 w-3.5" />
+                          ) : (
+                            <DollarSign className="h-3.5 w-3.5" />
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-[#1A1A2E]">
+                            {formatCurrency(p.amount)}
+                          </p>
+                          <p className="text-[10px] text-[#1A1A2E]/40">
+                            {p.method.replace("_", " ")} &middot;{" "}
+                            {new Date(p.paidAt).toLocaleDateString("en-NG", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                            {p.note && ` — ${p.note}`}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => p._id && handleDeletePayment(p._id)}
+                          className="shrink-0 rounded p-1 text-[#1A1A2E]/20 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                          title="Remove payment"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Add payment form */}
+              {balance > 0 && (
+                <div className="mt-4 border-t border-[#1A1A2E]/6 pt-3">
+                  {showPaymentForm ? (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[10px] font-medium text-[#1A1A2E]/45">
+                            Amount
+                          </label>
+                          <input
+                            type="number"
+                            value={paymentAmount}
+                            onChange={(e) => setPaymentAmount(e.target.value)}
+                            placeholder={`Max: ${formatCurrency(balance)}`}
+                            className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#D4A853]/40 focus:ring-1 focus:ring-[#D4A853]/20"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[10px] font-medium text-[#1A1A2E]/45">
+                            Method
+                          </label>
+                          <select
+                            value={paymentMethod}
+                            onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                            className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#D4A853]/40"
+                          >
+                            <option value="cash">Cash</option>
+                            <option value="bank_transfer">Bank Transfer</option>
+                            <option value="card">Card</option>
+                            <option value="mobile_money">Mobile Money</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        value={paymentNote}
+                        onChange={(e) => setPaymentNote(e.target.value)}
+                        placeholder="Note (optional)"
+                        className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#D4A853]/40 focus:ring-1 focus:ring-[#D4A853]/20"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          onClick={handleRecordPayment}
+                          loading={recordingPayment}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          Record Payment
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowPaymentForm(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowPaymentForm(true)}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[#D4A853]/30 px-3 py-2.5 text-xs font-medium text-[#D4A853] transition-all hover:border-[#D4A853]/50 hover:bg-[#D4A853]/5"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Record Payment
+                    </button>
+                  )}
+                </div>
+              )}
             </GlassCard>
           </motion.div>
         </div>
@@ -681,6 +989,71 @@ export default function OrderDetailPage() {
             </GlassCard>
           </motion.div>
         )}
+
+        {/* Gallery section */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.38 }}
+        >
+          <GlassCard padding="lg">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Camera className="h-5 w-5 text-[#C75B39]" />
+                <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                  Gallery
+                </h2>
+                {order.gallery && order.gallery.length > 0 && (
+                  <span className="text-xs text-[#1A1A2E]/35">
+                    {order.gallery.length}/6
+                  </span>
+                )}
+              </div>
+              {(!order.gallery || order.gallery.length < 6) && (
+                <label className="cursor-pointer rounded-lg border border-dashed border-[#C75B39]/30 px-3 py-1.5 text-xs font-medium text-[#C75B39] transition-all hover:border-[#C75B39]/50 hover:bg-[#C75B39]/5">
+                  <Plus className="mr-1 inline h-3 w-3" />
+                  Add Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleGalleryUpload}
+                  />
+                </label>
+              )}
+            </div>
+
+            {order.gallery && order.gallery.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {order.gallery.map((img, i) => (
+                  <div
+                    key={i}
+                    className="group relative aspect-square overflow-hidden rounded-xl bg-[#1A1A2E]/5"
+                  >
+                    <img
+                      src={img}
+                      alt={`${order.title} - ${i + 1}`}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      onClick={() => handleGalleryDelete(i)}
+                      className="absolute right-1.5 top-1.5 rounded-full bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#1A1A2E]/10 py-8">
+                <ImageIcon className="h-8 w-8 text-[#1A1A2E]/15" />
+                <p className="mt-2 text-xs text-[#1A1A2E]/35">
+                  Add photos of the garment at different stages
+                </p>
+              </div>
+            )}
+          </GlassCard>
+        </motion.div>
 
         {/* Notes section */}
         {order.notes && (

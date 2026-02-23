@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   StickyNote,
   Trash2,
+  TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
@@ -35,8 +36,10 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { MeasurementForm } from "@/components/clients/measurement-form";
+import { ClientInsights } from "@/components/clients/client-insights";
 import { EaseCalculator } from "@/components/common/ease-calculator";
 import { FabricCalculator } from "@/components/common/fabric-calculator";
+import { WhatsAppActions } from "@/components/common/whatsapp-actions";
 import { MEASUREMENT_TYPES } from "@/lib/constants";
 import {
   cn,
@@ -397,9 +400,32 @@ export default function ClientDetailPage() {
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
+              <WhatsAppActions
+                phone={client.phone}
+                clientName={client.name}
+                measurementUrl={client.shareCode ? `${window.location.origin}/measurements/${client.shareCode}` : undefined}
+                portalUrl={client.shareCode ? `${window.location.origin}/portal/${client.shareCode}` : undefined}
+              />
             </div>
           </div>
         </GlassCard>
+
+        {/* Client Insights */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+        >
+          <GlassCard padding="lg">
+            <div className="mb-4 flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-[#D4A853]" />
+              <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                Client Insights
+              </h2>
+            </div>
+            <ClientInsights clientId={client._id} />
+          </GlassCard>
+        </motion.div>
 
         {/* Measurements section */}
         <motion.div

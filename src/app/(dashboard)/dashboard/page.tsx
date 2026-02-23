@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
+import dynamic from "next/dynamic";
 import {
   Users,
   ShoppingBag,
@@ -17,6 +18,8 @@ import {
   ChevronRight,
   UserPlus,
   Package,
+  TrendingUp,
+  AlertCircle,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { PageTransition } from "@/components/common/page-transition";
@@ -26,8 +29,11 @@ import { EmptyState } from "@/components/common/empty-state";
 import { SectionLoader } from "@/components/common/loading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatPhone, getInitials } from "@/lib/utils";
+import { cn, formatCurrency, formatPhone, getInitials } from "@/lib/utils";
 import type { DashboardStats } from "@/types";
+
+const RevenueChart = dynamic(() => import("@/components/dashboard/revenue-chart"), { ssr: false });
+const GarmentChart = dynamic(() => import("@/components/dashboard/garment-chart"), { ssr: false });
 
 /* -------------------------------------------------------------------------- */
 /*  Animation variants                                                         */
@@ -91,21 +97,37 @@ function capitalizeStatus(status: string) {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [alerts, setAlerts] = useState<{
+    id: string;
+    type: string;
+    severity: "critical" | "warning" | "info";
+    title: string;
+    description: string;
+    actionUrl: string;
+    actionLabel: string;
+  }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchStats() {
       try {
-        const res = await fetch("/api/dashboard/stats");
-        const json = await res.json();
+        const [statsRes, alertsRes] = await Promise.all([
+          fetch("/api/dashboard/stats"),
+          fetch("/api/dashboard/alerts"),
+        ]);
+        const statsJson = await statsRes.json();
+        const alertsJson = await alertsRes.json();
 
-        if (!json.success) {
-          setError(json.error || "Failed to load dashboard data");
+        if (!statsJson.success) {
+          setError(statsJson.error || "Failed to load dashboard data");
           return;
         }
 
-        setStats(json.data);
+        setStats(statsJson.data);
+        if (alertsJson.success) {
+          setAlerts(alertsJson.data);
+        }
       } catch {
         setError("Failed to load dashboard data");
       } finally {
@@ -206,6 +228,48 @@ export default function DashboardPage() {
           </GlassCard>
         )}
 
+        {/* ---- Smart Alerts ---- */}
+        {alerts.length > 0 && !loading && (
+          <motion.div variants={itemVariants} className="space-y-2">
+            {alerts.slice(0, 4).map((alert) => (
+              <Link key={alert.id} href={alert.actionUrl}>
+                <div
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl border px-4 py-3 transition-all hover:shadow-sm",
+                    alert.severity === "critical"
+                      ? "border-red-200/60 bg-red-50/50"
+                      : alert.severity === "warning"
+                      ? "border-amber-200/60 bg-amber-50/50"
+                      : "border-[#1A1A2E]/6 bg-white/50"
+                  )}
+                >
+                  <AlertCircle
+                    className={cn(
+                      "h-4 w-4 shrink-0",
+                      alert.severity === "critical"
+                        ? "text-red-500"
+                        : alert.severity === "warning"
+                        ? "text-amber-500"
+                        : "text-[#1A1A2E]/30"
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-[#1A1A2E]">
+                      {alert.title}
+                    </p>
+                    <p className="text-[10px] text-[#1A1A2E]/45">
+                      {alert.description}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[10px] font-medium text-[#C75B39]">
+                    {alert.actionLabel} &rarr;
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </motion.div>
+        )}
+
         {/* ---- Stats Grid ---- */}
         {stats && !loading && (
           <>
@@ -234,6 +298,103 @@ export default function DashboardPage() {
                 value={stats.scansThisMonth ?? 0}
               />
             </motion.div>
+
+            {/* ---- Receivables Alert ---- */}
+            {(stats.receivables ?? 0) > 0 && (
+              <motion.div variants={itemVariants}>
+                <GlassCard padding="md" className="border-[#C75B39]/15 bg-gradient-to-r from-[#C75B39]/[0.04] to-[#D4A853]/[0.04]">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#C75B39]/10">
+                      <AlertCircle className="h-5 w-5 text-[#C75B39]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-[#1A1A2E]">
+                        Outstanding Receivables
+                      </p>
+                      <p className="text-xs text-[#1A1A2E]/50">
+                        You have {formatCurrency(stats.receivables ?? 0)} in unpaid balances across active orders
+                      </p>
+                    </div>
+                    <Link href="/orders?status=cutting,sewing,fitting,finishing,ready">
+                      <Button size="sm" variant="outline" className="shrink-0">
+                        View
+                      </Button>
+                    </Link>
+                  </div>
+                </GlassCard>
+              </motion.div>
+            )}
+
+            {/* ---- Analytics Charts ---- */}
+            {((stats.revenueTrend && stats.revenueTrend.length > 0) ||
+              (stats.garments && stats.garments.length > 0)) && (
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Revenue Trend */}
+                {stats.revenueTrend && stats.revenueTrend.length > 0 && (
+                  <motion.div variants={itemVariants}>
+                    <div className="mb-3 flex items-center gap-2">
+                      <TrendingUp className="h-4.5 w-4.5 text-[#D4A853]" />
+                      <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                        Revenue Trend
+                      </h2>
+                    </div>
+                    <GlassCard padding="lg">
+                      <RevenueChart data={stats.revenueTrend} />
+                    </GlassCard>
+                  </motion.div>
+                )}
+
+                {/* Garment Breakdown */}
+                {stats.garments && stats.garments.length > 0 && (
+                  <motion.div variants={itemVariants}>
+                    <div className="mb-3 flex items-center gap-2">
+                      <ShoppingBag className="h-4.5 w-4.5 text-[#C75B39]" />
+                      <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                        Popular Garments
+                      </h2>
+                    </div>
+                    <GlassCard padding="lg">
+                      <GarmentChart data={stats.garments} />
+                    </GlassCard>
+                  </motion.div>
+                )}
+              </div>
+            )}
+
+            {/* ---- Payment Overview ---- */}
+            {stats.paymentBreakdown && Object.keys(stats.paymentBreakdown).length > 0 && (
+              <motion.div variants={itemVariants}>
+                <div className="mb-3 flex items-center gap-2">
+                  <DollarSign className="h-4.5 w-4.5 text-emerald-600" />
+                  <h2 className="text-lg font-semibold text-[#1A1A2E]">
+                    Payment Overview
+                  </h2>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { key: "paid", label: "Paid", color: "emerald" },
+                    { key: "partial", label: "Partial", color: "amber" },
+                    { key: "unpaid", label: "Unpaid", color: "gray" },
+                    { key: "overdue", label: "Overdue", color: "red" },
+                  ].map(({ key, label, color }) => {
+                    const data = stats.paymentBreakdown?.[key];
+                    return (
+                      <GlassCard key={key} padding="sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#1A1A2E]/35">
+                          {label}
+                        </p>
+                        <p className={`mt-1 text-xl font-bold text-${color}-600`}>
+                          {data?.count || 0}
+                        </p>
+                        <p className="text-[10px] text-[#1A1A2E]/40">
+                          {formatCurrency(data?.total || 0)}
+                        </p>
+                      </GlassCard>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
 
             {/* ---- Recent Data Grid ---- */}
             <div className="grid gap-6 lg:grid-cols-2">

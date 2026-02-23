@@ -1,6 +1,7 @@
 import Link from "next/link";
 import connectDB from "@/lib/db";
 import { Designer } from "@/lib/models/designer";
+import { Order } from "@/lib/models/order";
 
 /* -------------------------------------------------------------------------- */
 /*  Not found view                                                            */
@@ -49,7 +50,19 @@ interface DesignerData {
   avatar?: string;
 }
 
-function ProfileView({ designer }: { designer: DesignerData }) {
+interface PortfolioItem {
+  title: string;
+  garmentType: string;
+  image: string;
+}
+
+function ProfileView({
+  designer,
+  portfolio,
+}: {
+  designer: DesignerData;
+  portfolio: PortfolioItem[];
+}) {
   const initials = designer.name
     .split(" ")
     .map((n) => n[0])
@@ -175,6 +188,40 @@ function ProfileView({ designer }: { designer: DesignerData }) {
                 </p>
               </div>
             )}
+
+            {/* Portfolio */}
+            {portfolio.length > 0 && (
+              <div className="mt-8">
+                <div className="my-8 h-px bg-[#1A1A2E]/8" />
+                <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-[#1A1A2E]/40">
+                  Portfolio
+                </h2>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {portfolio.map((item, i) => (
+                    <div
+                      key={i}
+                      className="group overflow-hidden rounded-xl border border-white/30 bg-white/40"
+                    >
+                      <div className="aspect-square overflow-hidden">
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                        />
+                      </div>
+                      <div className="p-2">
+                        <p className="truncate text-xs font-medium text-[#1A1A2E]">
+                          {item.title}
+                        </p>
+                        <p className="text-[10px] capitalize text-[#1A1A2E]/40">
+                          {item.garmentType}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -225,7 +272,32 @@ export default async function PublicDesignerProfile({
 
     const d = designer as unknown as DesignerData;
 
-    return <ProfileView designer={d} />;
+    // Fetch portfolio: delivered orders with gallery images
+    const ordersWithGallery = await Order.find({
+      designerId: id,
+      status: "delivered",
+      "gallery.0": { $exists: true },
+    })
+      .select("title garmentType gallery")
+      .sort({ updatedAt: -1 })
+      .limit(12)
+      .lean();
+
+    const portfolio: PortfolioItem[] = [];
+    for (const order of ordersWithGallery) {
+      const o = order as Record<string, unknown>;
+      const images = (o.gallery as string[]) || [];
+      // Take first image from each order
+      if (images.length > 0) {
+        portfolio.push({
+          title: o.title as string,
+          garmentType: o.garmentType as string,
+          image: images[0],
+        });
+      }
+    }
+
+    return <ProfileView designer={d} portfolio={portfolio} />;
   } catch {
     return <NotFoundView />;
   }

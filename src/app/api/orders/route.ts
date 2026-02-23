@@ -147,13 +147,24 @@ export async function POST(request: Request) {
       );
     }
 
+    const initialDeposit = parsed.data.depositPaid || 0;
+    const payments = initialDeposit > 0
+      ? [{ amount: initialDeposit, method: "cash", paidAt: new Date() }]
+      : [];
+
     const order = await Order.create({
       ...parsed.data,
       designerId,
       status: "pending",
       statusHistory: [{ status: "pending", changedAt: new Date() }],
       currency: "NGN",
-      depositPaid: parsed.data.depositPaid || 0,
+      depositPaid: initialDeposit,
+      payments,
+      paymentStatus: initialDeposit >= parsed.data.price
+        ? "paid"
+        : initialDeposit > 0
+        ? "partial"
+        : "unpaid",
     });
 
     return NextResponse.json(

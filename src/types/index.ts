@@ -65,6 +65,17 @@ export interface StatusHistoryEntry {
   note?: string;
 }
 
+export type PaymentMethod = "cash" | "bank_transfer" | "card" | "mobile_money" | "other";
+export type PaymentStatus = "unpaid" | "partial" | "paid" | "overdue";
+
+export interface Payment {
+  _id?: string;
+  amount: number;
+  method: PaymentMethod;
+  note?: string;
+  paidAt: string;
+}
+
 export interface Order {
   _id: string;
   designerId: string;
@@ -79,6 +90,9 @@ export interface Order {
   price: number;
   currency: string;
   depositPaid: number;
+  payments?: Payment[];
+  paymentStatus?: PaymentStatus;
+  gallery?: string[];
   dueDate?: string;
   measurements?: Measurements;
   notes?: string;
@@ -109,6 +123,19 @@ export interface ScanSession {
   createdAt: string;
 }
 
+export interface RevenueTrendItem {
+  month: string;
+  revenue: number;
+  collected: number;
+  orders: number;
+}
+
+export interface GarmentBreakdownItem {
+  type: string;
+  count: number;
+  revenue: number;
+}
+
 export interface DashboardStats {
   totalClients: number;
   totalOrders: number;
@@ -118,6 +145,10 @@ export interface DashboardStats {
   recentClients: Client[];
   recentOrders: (Order & { client?: { name?: string; phone?: string } | null })[];
   ordersByStatus: Record<string, number>;
+  revenueTrend?: RevenueTrendItem[];
+  garments?: GarmentBreakdownItem[];
+  paymentBreakdown?: Record<string, { count: number; total: number }>;
+  receivables?: number;
 }
 
 export interface ApiResponse<T = unknown> {
