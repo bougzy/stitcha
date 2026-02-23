@@ -17,7 +17,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email and password are required");
         }
 
-        await connectDB();
+        try {
+          await connectDB();
+        } catch (err) {
+          console.error("DB connection failed in authorize:", err);
+          throw new Error("Service temporarily unavailable");
+        }
 
         const designer = await Designer.findOne({ email: credentials.email.toLowerCase() }).select(
           "+password"
@@ -65,6 +70,7 @@ export const authOptions: NextAuthOptions = {
     },
   },
   secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === "development",
 };
 
 export async function getDesignerFromSession(session: { user?: { id?: string; [key: string]: unknown } } | null) {

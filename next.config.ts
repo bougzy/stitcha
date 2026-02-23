@@ -27,7 +27,7 @@ const withPWA = withPWAInit({
         },
       },
       {
-        urlPattern: /\/api\/.*$/i,
+        urlPattern: /\/api\/(?!auth\/).*/i,
         handler: "NetworkFirst",
         options: {
           cacheName: "api-cache",
