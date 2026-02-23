@@ -166,7 +166,7 @@ function clampMeasurement(value: number, min: number, max: number): number {
 /*  Prevents obviously wrong results from being returned                       */
 /* -------------------------------------------------------------------------- */
 
-function getPlausibleRanges(heightCm: number, gender: BodyGender) {
+export function getPlausibleRanges(heightCm: number, gender: BodyGender) {
   const h = heightCm;
   const isFemale = gender === "female";
   return {
@@ -244,6 +244,95 @@ export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
     img.onerror = reject;
     img.src = dataUrl;
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Photo Quality Validation                                                    */
+/*  Checks brightness and sharpness before AI analysis                         */
+/* -------------------------------------------------------------------------- */
+
+export interface PhotoQualityResult {
+  ok: boolean;
+  issues: string[];
+}
+
+/** Perceived luminance from pixel data (0-255 scale) */
+function checkImageBrightness(data: Uint8ClampedArray): { ok: boolean; issue?: string } {
+  let totalLuminance = 0;
+  const pixelCount = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    // Perceived luminance: 0.299R + 0.587G + 0.114B
+    totalLuminance += data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+  }
+  const avg = totalLuminance / pixelCount;
+  if (avg < 40) return { ok: false, issue: "Photo is too dark — move to a brighter area or turn on a light" };
+  if (avg > 220) return { ok: false, issue: "Photo is overexposed — avoid direct bright light behind you" };
+  return { ok: true };
+}
+
+/** Laplacian variance for blur detection (higher = sharper) */
+function checkImageSharpness(data: Uint8ClampedArray, width: number, height: number): { ok: boolean; issue?: string } {
+  // Convert to grayscale and compute Laplacian variance
+  const gray = new Float32Array(width * height);
+  for (let i = 0; i < gray.length; i++) {
+    const idx = i * 4;
+    gray[i] = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
+  }
+
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      // Laplacian kernel: [0,1,0; 1,-4,1; 0,1,0]
+      const laplacian =
+        gray[idx - width] + gray[idx + width] +
+        gray[idx - 1] + gray[idx + 1] -
+        4 * gray[idx];
+      sum += laplacian;
+      sumSq += laplacian * laplacian;
+      count++;
+    }
+  }
+
+  const mean = sum / count;
+  const variance = sumSq / count - mean * mean;
+
+  // Threshold ~100 — below this the image is too blurry
+  if (variance < 100) return { ok: false, issue: "Photo appears blurry — hold the camera steady or tap to focus" };
+  return { ok: true };
+}
+
+/** Validate photo quality: brightness + sharpness. Loads image to canvas for analysis. */
+export async function validatePhotoQuality(dataUrl: string): Promise<PhotoQualityResult> {
+  const issues: string[] = [];
+  try {
+    const img = await loadImage(dataUrl);
+    // Use a smaller canvas for performance (max 640px)
+    const maxDim = 640;
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { ok: true, issues: [] };
+    ctx.drawImage(img, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+
+    const brightness = checkImageBrightness(imageData.data);
+    if (!brightness.ok && brightness.issue) issues.push(brightness.issue);
+
+    const sharpness = checkImageSharpness(imageData.data, w, h);
+    if (!sharpness.ok && sharpness.issue) issues.push(sharpness.issue);
+  } catch {
+    // If quality check fails, don't block — just skip
+  }
+  return { ok: issues.length === 0, issues };
 }
 
 /* -------------------------------------------------------------------------- */

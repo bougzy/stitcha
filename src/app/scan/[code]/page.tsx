@@ -29,9 +29,11 @@ import {
   detectLandmarks,
   loadImage,
   calculateMeasurements,
+  validatePhotoQuality,
   type MeasurementResult,
   type BodyGender,
 } from "@/lib/body-measurement";
+import { checkPlausibility, type MeasurementWarning } from "@/lib/measurement-plausibility";
 
 /* ========================================================================== */
 /*  Types                                                                      */
@@ -149,18 +151,21 @@ export default function ClientScanPage() {
     useState<MeasurementResult | null>(null);
   const [manualMeasurements, setManualMeasurements] = useState<Record<string, string>>({});
   const [deviceChecks, setDeviceChecks] = useState({ lighting: true, camera: true });
+  const [plausibilityWarnings, setPlausibilityWarnings] = useState<MeasurementWarning[]>([]);
+  const [photoQualityIssues, setPhotoQualityIssues] = useState<string[]>([]);
+  const [analyzeStep, setAnalyzeStep] = useState(0);
 
   const frontInputRef = useRef<HTMLInputElement>(null);
   const sideInputRef = useRef<HTMLInputElement>(null);
   const poseLandmarkerRef = useRef<ReturnType<typeof initPoseLandmarker> | null>(null);
 
   /* ---------------------------------------------------------------------- */
-  /*  Preload MediaPipe when user reaches review step                        */
+  /*  Preload MediaPipe early (height step) so model is warm by analysis    */
   /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    if (step === "review" && !poseLandmarkerRef.current) {
-      // Start loading the AI model in the background so it's ready on "Analyze"
+    const preloadSteps: ScanStep[] = ["height", "gender", "pre-scan-check", "front-photo", "side-photo", "review"];
+    if (preloadSteps.includes(step) && !poseLandmarkerRef.current) {
       poseLandmarkerRef.current = initPoseLandmarker();
     }
   }, [step]);
@@ -248,6 +253,16 @@ export default function ClientScanPage() {
       const dataUrl = event.target?.result as string;
       // Resize for faster processing
       const optimized = await resizeImageIfNeeded(dataUrl);
+
+      // Run photo quality pre-check
+      const quality = await validatePhotoQuality(optimized);
+      if (!quality.ok) {
+        setPhotoQualityIssues(quality.issues);
+        // Don't block — still save the photo and advance
+      } else {
+        setPhotoQualityIssues([]);
+      }
+
       if (type === "front") {
         setFrontPhoto(optimized);
         setStep("side-photo");
@@ -274,6 +289,7 @@ export default function ClientScanPage() {
     try {
       setStep("analyzing");
       setAnalyzeProgress(0);
+      setAnalyzeStep(1);
       setAnalyzeStatus("Loading AI measurement model...");
 
       // Step 1: Initialize PoseLandmarker (may already be preloaded)
@@ -281,6 +297,7 @@ export default function ClientScanPage() {
         ? await poseLandmarkerRef.current
         : await initPoseLandmarker();
       setAnalyzeProgress(20);
+      setAnalyzeStep(2);
 
       // Step 2: Load and detect landmarks on front photo
       setAnalyzeStatus("Analyzing front pose...");
@@ -295,12 +312,14 @@ export default function ClientScanPage() {
         );
         return;
       }
+      setAnalyzeStep(3);
 
       // Step 3: Load and detect landmarks on side photo
       setAnalyzeStatus("Analyzing side pose...");
       const sideImg = await loadImage(sidePhoto);
       const sideLandmarks = await detectLandmarks(poseLandmarker, sideImg);
       setAnalyzeProgress(70);
+      setAnalyzeStep(4);
 
       // Step 4: Calculate measurements (gender-calibrated for African body types)
       setAnalyzeStatus("Calculating your measurements...");
@@ -315,8 +334,15 @@ export default function ClientScanPage() {
         gender
       );
       setAnalyzeProgress(85);
+      setAnalyzeStep(5);
 
-      // Step 5: Send measurements to the API
+      // Step 5: Run plausibility checks
+      setAnalyzeStatus("Running quality checks...");
+      const warnings = checkPlausibility(result.measurements, Number(heightCm), gender);
+      setPlausibilityWarnings(warnings);
+      setAnalyzeProgress(92);
+
+      // Step 6: Send measurements to the API
       setAnalyzeStatus("Saving your measurements...");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const payload: Record<string, any> = {
@@ -1110,6 +1136,27 @@ export default function ClientScanPage() {
               Turn sideways (left or right). Keep your arms relaxed.
             </p>
 
+            {/* Photo quality warnings from front photo */}
+            {photoQualityIssues.length > 0 && (
+              <div className="mt-3 rounded-xl border border-amber-200/50 bg-amber-50/50 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <div>
+                    <p className="text-xs font-semibold text-amber-700">Front photo quality issue</p>
+                    {photoQualityIssues.map((issue, i) => (
+                      <p key={i} className="mt-0.5 text-[11px] text-amber-600">{issue}</p>
+                    ))}
+                    <button
+                      onClick={() => { setPhotoQualityIssues([]); setFrontPhoto(null); setStep("front-photo"); }}
+                      className="mt-1.5 text-[11px] font-semibold text-[#C75B39] underline"
+                    >
+                      Retake front photo
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {frontPhoto && (
               <div className="mt-3 flex items-center justify-center gap-2">
                 <div className="h-12 w-9 overflow-hidden rounded-lg border border-green-400/30 bg-green-50/50">
@@ -1284,7 +1331,7 @@ export default function ClientScanPage() {
         )}
 
         {/* ============================================================== */}
-        {/*  ANALYZING                                                      */}
+        {/*  ANALYZING — Step-by-step progress timeline                    */}
         {/* ============================================================== */}
         {step === "analyzing" && (
           <motion.div
@@ -1293,35 +1340,24 @@ export default function ClientScanPage() {
             initial="initial"
             animate="animate"
             exit="exit"
-            className="flex flex-1 flex-col items-center justify-center gap-6"
+            className="flex flex-1 flex-col items-center justify-center gap-5"
           >
             <div className="relative">
               <div
                 className="absolute inset-[-8px] animate-spin rounded-full border-2 border-transparent border-t-[#C75B39]/40"
                 style={{ animationDuration: "2s" }}
               />
-              <div
-                className="absolute inset-[-4px] animate-spin rounded-full border-2 border-transparent border-b-[#D4A853]/30"
-                style={{
-                  animationDuration: "3s",
-                  animationDirection: "reverse",
-                }}
-              />
-              <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
-                <Ruler className="h-9 w-9 text-[#C75B39]" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39]/10 to-[#D4A853]/10">
+                <Ruler className="h-8 w-8 text-[#C75B39]" />
               </div>
             </div>
 
-            <div className="text-center">
-              <p className="text-lg font-semibold text-[#1A1A2E]">
-                AI is measuring you...
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-[#1A1A2E]/50">
-                {analyzeStatus}
-              </p>
-            </div>
+            <p className="text-lg font-semibold text-[#1A1A2E]">
+              AI is measuring you...
+            </p>
 
-            <div className="w-56">
+            {/* Progress bar */}
+            <div className="w-64">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#C75B39]/10">
                 <motion.div
                   className="h-full rounded-full bg-gradient-to-r from-[#C75B39] to-[#D4A853]"
@@ -1330,39 +1366,79 @@ export default function ClientScanPage() {
                   transition={{ duration: 0.5, ease: "easeInOut" }}
                 />
               </div>
-              <p className="mt-2 text-center text-xs font-medium text-[#1A1A2E]/40">
-                {analyzeProgress}%
-              </p>
             </div>
 
-            <div className="space-y-1.5 text-center">
-              {analyzeProgress >= 20 && (
-                <p className="text-[10px] text-green-600">
-                  {analyzeProgress > 20 ? "✓" : "..."} AI model loaded
-                </p>
-              )}
-              {analyzeProgress >= 45 && (
-                <p className="text-[10px] text-green-600">
-                  {analyzeProgress > 45 ? "✓" : "..."} Front pose detected
-                </p>
-              )}
-              {analyzeProgress >= 70 && (
-                <p className="text-[10px] text-green-600">
-                  {analyzeProgress > 70 ? "✓" : "..."} Side pose analyzed
-                </p>
-              )}
-              {analyzeProgress >= 85 && (
-                <p className="text-[10px] text-green-600">
-                  {analyzeProgress > 85 ? "✓" : "..."} Measurements calculated
-                </p>
-              )}
+            {/* Vertical timeline */}
+            <div className="w-full max-w-[280px] space-y-0">
+              {[
+                { step: 1, label: "Loading AI model", time: "~3s", icon: "🧠" },
+                { step: 2, label: "Analyzing front photo", time: "~2s", icon: "📸" },
+                { step: 3, label: "Analyzing side photo", time: "~2s", icon: "📷" },
+                { step: 4, label: "Calculating measurements", time: "~1s", icon: "📐" },
+                { step: 5, label: "Running quality checks", time: "~1s", icon: "✅" },
+              ].map((item, idx) => {
+                const isDone = analyzeStep > item.step;
+                const isActive = analyzeStep === item.step;
+                return (
+                  <div key={item.step} className="flex items-start gap-3">
+                    {/* Timeline connector */}
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-full text-sm transition-all duration-300",
+                          isDone
+                            ? "bg-green-100 text-green-600"
+                            : isActive
+                            ? "bg-[#C75B39]/10 text-[#C75B39] shadow-sm ring-2 ring-[#C75B39]/20"
+                            : "bg-[#1A1A2E]/5 text-[#1A1A2E]/30"
+                        )}
+                      >
+                        {isDone ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : isActive ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <span className="text-xs">{item.icon}</span>
+                        )}
+                      </div>
+                      {idx < 4 && (
+                        <div
+                          className={cn(
+                            "h-4 w-0.5 transition-colors duration-300",
+                            isDone ? "bg-green-300" : "bg-[#1A1A2E]/8"
+                          )}
+                        />
+                      )}
+                    </div>
+
+                    {/* Label */}
+                    <div className="flex flex-1 items-center justify-between pt-1.5">
+                      <span
+                        className={cn(
+                          "text-sm transition-colors duration-300",
+                          isDone
+                            ? "font-medium text-green-600"
+                            : isActive
+                            ? "font-semibold text-[#1A1A2E]"
+                            : "text-[#1A1A2E]/35"
+                        )}
+                      >
+                        {item.label}
+                      </span>
+                      <span className="text-[10px] text-[#1A1A2E]/30">
+                        {isDone ? "Done" : isActive ? item.time : ""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="flex gap-1.5">
               {[0, 1, 2].map((i) => (
                 <motion.div
                   key={i}
-                  className="h-2.5 w-2.5 rounded-full bg-[#C75B39]"
+                  className="h-2 w-2 rounded-full bg-[#C75B39]"
                   animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1, 0.8] }}
                   transition={{
                     duration: 1.2,
@@ -1636,6 +1712,34 @@ export default function ClientScanPage() {
                     <span className="text-green-600">
                       {Math.round(measurementResult.confidence * 100)}%
                     </span>
+                  </p>
+                </div>
+              )}
+
+              {/* Plausibility warnings */}
+              {plausibilityWarnings.length > 0 && (
+                <div className="mt-3 border-t border-amber-200/30 pt-3">
+                  <p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-600/70">
+                    Review Notes
+                  </p>
+                  <div className="space-y-1.5">
+                    {plausibilityWarnings.slice(0, 3).map((w, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px]",
+                          w.severity === "critical"
+                            ? "bg-red-50 text-red-600"
+                            : "bg-amber-50 text-amber-600"
+                        )}
+                      >
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span>{w.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-center text-[10px] text-[#1A1A2E]/35">
+                    Your designer will review and adjust if needed
                   </p>
                 </div>
               )}

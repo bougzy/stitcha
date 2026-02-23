@@ -12,6 +12,24 @@ const withPWA = withPWAInit({
     disableDevLogs: true,
     runtimeCaching: [
       {
+        // MediaPipe WASM runtime — cache aggressively (versioned CDN)
+        urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/npm\/@mediapipe\/.*/i,
+        handler: "CacheFirst",
+        options: {
+          cacheName: "mediapipe-wasm",
+          expiration: { maxEntries: 20, maxAgeSeconds: 365 * 24 * 60 * 60 },
+        },
+      },
+      {
+        // MediaPipe model files — cache aggressively
+        urlPattern: /^https:\/\/storage\.googleapis\.com\/mediapipe-models\/.*/i,
+        handler: "CacheFirst",
+        options: {
+          cacheName: "mediapipe-models",
+          expiration: { maxEntries: 5, maxAgeSeconds: 365 * 24 * 60 * 60 },
+        },
+      },
+      {
         urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
         handler: "CacheFirst",
         options: {

@@ -80,6 +80,8 @@ export interface Measurements {
   source: "manual" | "ai_scan";
   confidence?: number;
   measuredAt: string;
+  reviewedByDesigner?: boolean;
+  reviewedAt?: string;
 }
 
 export interface StatusHistoryEntry {

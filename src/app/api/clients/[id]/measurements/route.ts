@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
@@ -143,6 +143,81 @@ export async function POST(
     );
   } catch (error) {
     console.error("POST /api/clients/[id]/measurements error:", error);
+    return NextResponse.json(
+      { success: false, error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  PUT /api/clients/[id]/measurements                                        */
+/*  Designer reviews/adjusts AI measurements and approves them               */
+/* -------------------------------------------------------------------------- */
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const designerId = (session.user as { id: string }).id;
+    const { id } = await params;
+    const body = await request.json();
+    const { adjustments, approve } = body;
+
+    await connectDB();
+
+    const client = await Client.findOne({ _id: id, designerId });
+    if (!client) {
+      return NextResponse.json(
+        { success: false, error: "Client not found" },
+        { status: 404 }
+      );
+    }
+
+    if (!client.measurements) {
+      return NextResponse.json(
+        { success: false, error: "No measurements to review" },
+        { status: 400 }
+      );
+    }
+
+    // Apply adjustments if provided
+    if (adjustments && typeof adjustments === "object") {
+      for (const [key, value] of Object.entries(adjustments)) {
+        if (typeof value === "number" && value > 0) {
+          client.measurements[key] = Math.round(value * 10) / 10;
+        }
+      }
+    }
+
+    // Mark as reviewed
+    if (approve) {
+      client.measurements.reviewedByDesigner = true;
+      client.measurements.reviewedAt = new Date();
+    }
+
+    client.markModified("measurements");
+    await client.save();
+
+    return NextResponse.json({
+      success: true,
+      message: approve ? "Measurements approved" : "Measurements updated",
+      data: {
+        current: JSON.parse(JSON.stringify(client.measurements)),
+      },
+    });
+  } catch (error) {
+    console.error("PUT /api/clients/[id]/measurements error:", error);
     return NextResponse.json(
       { success: false, error: "Internal server error" },
       { status: 500 }
