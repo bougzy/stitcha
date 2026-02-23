@@ -180,9 +180,9 @@ export const SUBSCRIPTION_PLANS = [
 /* -------------------------------------------------------------------------- */
 
 export const CREDIT_PACKS = [
-  { id: "pack-10", scans: 10, price: 1000, currency: "NGN", label: "Starter Pack" },
-  { id: "pack-25", scans: 25, price: 2000, currency: "NGN", label: "Growth Pack", badge: "Best Value" },
-  { id: "pack-50", scans: 50, price: 3500, currency: "NGN", label: "Pro Pack" },
+  { id: "pack-10", scans: 10, price: 1000, currency: "NGN", label: "Starter Pack", badge: null },
+  { id: "pack-25", scans: 25, price: 2000, currency: "NGN", label: "Growth Pack", badge: "Best Value" as const },
+  { id: "pack-50", scans: 50, price: 3500, currency: "NGN", label: "Pro Pack", badge: null },
 ] as const;
 
 /* -------------------------------------------------------------------------- */
