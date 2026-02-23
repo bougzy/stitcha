@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { verifyAdminToken } from "@/lib/admin-auth";
 import connectDB from "@/lib/db";
 import { ActivityLog } from "@/lib/models/activity-log";
 import { Designer } from "@/lib/models/designer";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const role = (session.user as { role?: string }).role;
-    if (role !== "admin") {
-      return NextResponse.json({ success: false, error: "Admin access required" }, { status: 403 });
+    if (!(await verifyAdminToken())) {
+      return NextResponse.json({ success: false, error: "Admin access required" }, { status: 401 });
     }
 
     await connectDB();
