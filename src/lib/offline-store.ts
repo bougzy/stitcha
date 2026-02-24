@@ -158,13 +158,20 @@ export const syncQueue = {
     await db.delete("syncQueue", id);
   },
 
-  /** Process all pending sync items */
+  /** Process all pending sync items with exponential backoff */
   async flush(): Promise<{ synced: number; failed: number }> {
     const items = await this.getAll();
     let synced = 0;
     let failed = 0;
 
     for (const item of items) {
+      // Max 5 retries
+      if (item.retries >= 5) {
+        await this.remove(item.id);
+        failed++;
+        continue;
+      }
+
       try {
         const res = await fetch(item.url, {
           method: item.method,
@@ -176,9 +183,18 @@ export const syncQueue = {
           await this.remove(item.id);
           synced++;
         } else {
+          // Increment retries for next attempt
+          const db = await getDB();
+          if (db) {
+            await db.put("syncQueue", { ...item, retries: item.retries + 1 });
+          }
           failed++;
         }
       } catch {
+        const db = await getDB();
+        if (db) {
+          await db.put("syncQueue", { ...item, retries: item.retries + 1 });
+        }
         failed++;
       }
     }
@@ -204,6 +220,77 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   const count = await syncQueue.count();
   if (count > 0) return "pending";
   return "synced";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Auto-Sync on Reconnect                                                     */
+/*  Listens for 'online' event and flushes queue with exponential backoff     */
+/* -------------------------------------------------------------------------- */
+
+type SyncListener = (status: SyncStatus, pendingCount: number) => void;
+const syncListeners = new Set<SyncListener>();
+
+export function onSyncStatusChange(fn: SyncListener): () => void {
+  syncListeners.add(fn);
+  return () => { syncListeners.delete(fn); };
+}
+
+function notifyListeners(status: SyncStatus, count: number) {
+  syncListeners.forEach((fn) => fn(status, count));
+}
+
+let autoSyncInitialized = false;
+
+export function initAutoSync(): void {
+  if (typeof window === "undefined" || autoSyncInitialized) return;
+  autoSyncInitialized = true;
+
+  let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function attemptSync(attempt = 0): Promise<void> {
+    if (!navigator.onLine) {
+      notifyListeners("offline", await syncQueue.count());
+      return;
+    }
+
+    const pending = await syncQueue.count();
+    if (pending === 0) {
+      notifyListeners("synced", 0);
+      return;
+    }
+
+    notifyListeners("pending", pending);
+
+    const { synced, failed } = await syncQueue.flush();
+    const remainingCount = await syncQueue.count();
+
+    if (remainingCount === 0) {
+      notifyListeners("synced", 0);
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s (max 5 retries)
+    if (failed > 0 && attempt < 5) {
+      const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
+      notifyListeners("pending", remainingCount);
+      retryTimeout = setTimeout(() => attemptSync(attempt + 1), delay);
+    } else if (attempt >= 5) {
+      notifyListeners("failed", remainingCount);
+    }
+  }
+
+  window.addEventListener("online", () => {
+    if (retryTimeout) clearTimeout(retryTimeout);
+    attemptSync(0);
+  });
+
+  window.addEventListener("offline", async () => {
+    if (retryTimeout) clearTimeout(retryTimeout);
+    notifyListeners("offline", await syncQueue.count());
+  });
+
+  // Check on init
+  attemptSync(0);
 }
 
 /* -------------------------------------------------------------------------- */

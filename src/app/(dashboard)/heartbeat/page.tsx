@@ -12,11 +12,15 @@ import {
   MessageCircle,
   ChevronRight,
   User,
-  DollarSign,
   Copy,
   Check,
   Phone,
   Filter,
+  RefreshCw,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Clock,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -30,12 +34,17 @@ interface ClientHeartbeat {
   phone: string;
   temperature: "hot" | "warm" | "cold" | "dormant";
   daysSinceLastOrder: number | null;
+  daysSinceLastContact: number | null;
   totalOrders: number;
   totalSpent: number;
   outstandingBalance: number;
   lastOrderTitle: string | null;
   suggestedAction: string;
   suggestedMessage: string;
+  lastOutreachDate: string | null;
+  lastOutreachType: string | null;
+  isRepeatClient: boolean;
+  paymentReliability: "excellent" | "good" | "poor";
 }
 
 interface HeartbeatSummary {
@@ -135,7 +144,7 @@ export default function HeartbeatPage() {
     setTimeout(() => setCopiedId(null), 2000);
   }
 
-  function openWhatsApp(phone: string, message: string) {
+  function openWhatsApp(clientId: string, phone: string, message: string) {
     let formatted = phone.replace(/\s+/g, "").replace(/^0/, "234");
     if (!formatted.startsWith("+") && !formatted.startsWith("234")) {
       formatted = "234" + formatted;
@@ -143,6 +152,20 @@ export default function HeartbeatPage() {
     window.open(
       `https://wa.me/${formatted}?text=${encodeURIComponent(message)}`,
       "_blank"
+    );
+    // Log outreach (fire-and-forget)
+    fetch("/api/clients/outreach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId, type: "whatsapp", message }),
+    }).catch(() => {});
+    // Update local state to reflect the outreach
+    setClients((prev) =>
+      prev.map((c) =>
+        c.clientId === clientId
+          ? { ...c, lastOutreachDate: new Date().toISOString(), lastOutreachType: "whatsapp" }
+          : c
+      )
     );
   }
 
@@ -287,6 +310,17 @@ export default function HeartbeatPage() {
   );
 }
 
+function formatDaysAgo(dateStr: string): string {
+  const days = Math.floor(
+    (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)
+  );
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 function ClientCard({
   client,
   index,
@@ -298,7 +332,7 @@ function ClientCard({
   index: number;
   copiedId: string | null;
   onCopyMessage: (id: string, msg: string) => void;
-  onWhatsApp: (phone: string, msg: string) => void;
+  onWhatsApp: (clientId: string, phone: string, msg: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const config = TEMP_CONFIG[client.temperature];
@@ -338,7 +372,7 @@ function ClientCard({
             <p className="text-sm font-medium text-[#1A1A2E]">
               {client.name}
             </p>
-            <div className="flex items-center gap-2 text-[10px] text-[#1A1A2E]/40">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-[#1A1A2E]/40">
               <span>
                 {client.daysSinceLastOrder !== null
                   ? client.daysSinceLastOrder === 0
@@ -353,6 +387,15 @@ function ClientCard({
                   <span className="text-[#1A1A2E]/15">|</span>
                   <span className="font-medium text-[#C75B39]">
                     {formatCurrency(client.outstandingBalance)} owed
+                  </span>
+                </>
+              )}
+              {client.isRepeatClient && (
+                <>
+                  <span className="text-[#1A1A2E]/15">|</span>
+                  <span className="flex items-center gap-0.5 font-medium text-[#D4A853]">
+                    <RefreshCw className="h-2.5 w-2.5" />
+                    Repeat
                   </span>
                 </>
               )}
@@ -381,6 +424,46 @@ function ClientCard({
         {/* Expanded: Suggested action */}
         {expanded && (
           <div className="border-t border-[#1A1A2E]/5 px-3 pb-3 pt-2.5">
+            {/* Badges row */}
+            <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+              {client.lastOutreachDate && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-green-50/60 px-1.5 py-0.5 text-[10px] text-green-600">
+                  <Clock className="h-2.5 w-2.5" />
+                  Contacted {formatDaysAgo(client.lastOutreachDate)}
+                  {client.lastOutreachType && ` via ${client.lastOutreachType}`}
+                </span>
+              )}
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]",
+                  client.paymentReliability === "excellent"
+                    ? "bg-emerald-50/60 text-emerald-600"
+                    : client.paymentReliability === "good"
+                      ? "bg-blue-50/60 text-blue-600"
+                      : "bg-red-50/60 text-red-600"
+                )}
+              >
+                {client.paymentReliability === "excellent" ? (
+                  <ShieldCheck className="h-2.5 w-2.5" />
+                ) : client.paymentReliability === "good" ? (
+                  <Shield className="h-2.5 w-2.5" />
+                ) : (
+                  <ShieldAlert className="h-2.5 w-2.5" />
+                )}
+                {client.paymentReliability === "excellent"
+                  ? "Excellent payer"
+                  : client.paymentReliability === "good"
+                    ? "Good payer"
+                    : "Payment issues"}
+              </span>
+              {client.isRepeatClient && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-[#D4A853]/10 px-1.5 py-0.5 text-[10px] text-[#D4A853]">
+                  <RefreshCw className="h-2.5 w-2.5" />
+                  Repeat client
+                </span>
+              )}
+            </div>
+
             {/* Suggested action */}
             <div className="mb-2.5 flex items-center gap-2">
               <MessageCircle className="h-3.5 w-3.5 text-[#D4A853]" />
@@ -403,7 +486,7 @@ function ClientCard({
                 className="flex-1 gap-1.5 bg-[#25D366] text-xs hover:bg-[#20BD5A]"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onWhatsApp(client.phone, client.suggestedMessage);
+                  onWhatsApp(client.clientId, client.phone, client.suggestedMessage);
                 }}
               >
                 <Phone className="h-3 w-3" />

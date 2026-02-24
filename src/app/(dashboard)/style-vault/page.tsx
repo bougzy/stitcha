@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Scissors,
@@ -12,18 +12,26 @@ import {
   Calendar,
   ChevronRight,
   Tag,
+  Loader2,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  STYLE_TIPS,
-  TREND_ALERTS,
   CATEGORIES,
   getDailyContent,
-  type StyleTip,
+  type TrendAlert,
 } from "@/lib/style-vault-data";
+
+interface DbStyleTip {
+  _id: string;
+  title: string;
+  content: string;
+  category: "technique" | "trend" | "fabric" | "business" | "inspiration";
+  tags: string[];
+  viewCount: number;
+  bookmarkCount: number;
+}
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -52,50 +60,93 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string
 
 export default function StyleVaultPage() {
   const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [bookmarks, setBookmarks] = useState<Set<string>>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("stitcha-bookmarks");
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    }
-    return new Set();
-  });
+  const [tips, setTips] = useState<DbStyleTip[]>([]);
+  const [trendAlerts, setTrendAlerts] = useState<TrendAlert[]>([]);
+  const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const { featuredTip, featuredTrend } = useMemo(() => getDailyContent(), []);
+  // Daily featured content (static fallback while DB loads)
+  const { featuredTip: staticFeaturedTip, featuredTrend } = useMemo(() => getDailyContent(), []);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (activeCategory !== "all") params.set("category", activeCategory);
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      params.set("limit", "50");
+
+      const [tipsRes, bookmarksRes] = await Promise.all([
+        fetch(`/api/style-vault?${params}`),
+        fetch("/api/style-vault/bookmarks"),
+      ]);
+
+      const tipsJson = await tipsRes.json();
+      const bookmarksJson = await bookmarksRes.json();
+
+      if (tipsJson.success) {
+        setTips(tipsJson.data.tips);
+        if (tipsJson.data.trendAlerts) setTrendAlerts(tipsJson.data.trendAlerts);
+      }
+      if (bookmarksJson.success) {
+        setBookmarks(new Set(bookmarksJson.data.bookmarks));
+      }
+    } catch {
+      // Fall back to static data on error
+    } finally {
+      setLoading(false);
+    }
+  }, [activeCategory, searchQuery]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const filteredTips = useMemo(() => {
-    let tips = STYLE_TIPS;
-
     if (showBookmarksOnly) {
-      tips = tips.filter((t) => bookmarks.has(t.id));
+      return tips.filter((t) => bookmarks.has(t._id));
     }
-
-    if (activeCategory !== "all") {
-      tips = tips.filter((t) => t.category === activeCategory);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      tips = tips.filter(
-        (t) =>
-          t.title.toLowerCase().includes(q) ||
-          t.content.toLowerCase().includes(q) ||
-          t.tags.some((tag) => tag.includes(q))
-      );
-    }
-
     return tips;
-  }, [activeCategory, bookmarks, searchQuery, showBookmarksOnly]);
+  }, [tips, bookmarks, showBookmarksOnly]);
 
-  function toggleBookmark(id: string) {
+  // Use first DB tip as featured if available, else static
+  const featuredTip = tips.length > 0
+    ? { id: tips[0]._id, title: tips[0].title, content: tips[0].content, tags: tips[0].tags, category: tips[0].category }
+    : staticFeaturedTip;
+
+  async function toggleBookmark(id: string) {
+    // Optimistic update
     setBookmarks((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      localStorage.setItem("stitcha-bookmarks", JSON.stringify([...next]));
       return next;
     });
+
+    try {
+      await fetch("/api/style-vault/bookmarks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipId: id }),
+      });
+    } catch {
+      // Revert on failure
+      setBookmarks((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
+  }
+
+  function trackView(tipId: string) {
+    fetch("/api/style-vault", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipId, action: "view" }),
+    }).catch(() => {});
   }
 
   return (
@@ -134,7 +185,7 @@ export default function StyleVaultPage() {
           </button>
         </motion.div>
 
-        {/* Featured Card — Design of the Day */}
+        {/* Featured Card — Tip of the Day */}
         <motion.div variants={itemVariants}>
           <GlassCard gradientBorder padding="lg">
             <div className="flex items-start gap-3">
@@ -231,7 +282,7 @@ export default function StyleVaultPage() {
         </motion.div>
 
         {/* Trend Alerts Section */}
-        {activeCategory === "all" && !showBookmarksOnly && !searchQuery && (
+        {activeCategory === "all" && !showBookmarksOnly && !searchQuery && trendAlerts.length > 0 && (
           <motion.div variants={itemVariants}>
             <div className="mb-3 flex items-center gap-2">
               <Calendar className="h-4.5 w-4.5 text-rose-500" />
@@ -240,7 +291,7 @@ export default function StyleVaultPage() {
               </h2>
             </div>
             <div className="grid gap-2.5 sm:grid-cols-2">
-              {TREND_ALERTS.map((trend) => (
+              {trendAlerts.map((trend) => (
                 <GlassCard key={trend.id} padding="sm">
                   <div className="flex items-start gap-3">
                     <div
@@ -294,7 +345,11 @@ export default function StyleVaultPage() {
             </span>
           </div>
 
-          {filteredTips.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-[#C75B39]/40" />
+            </div>
+          ) : filteredTips.length === 0 ? (
             <GlassCard padding="lg">
               <div className="py-8 text-center">
                 <Bookmark className="mx-auto h-8 w-8 text-[#1A1A2E]/15" />
@@ -309,10 +364,11 @@ export default function StyleVaultPage() {
             <div className="space-y-2.5">
               {filteredTips.map((tip, i) => (
                 <TipCard
-                  key={tip.id}
+                  key={tip._id}
                   tip={tip}
-                  isBookmarked={bookmarks.has(tip.id)}
-                  onToggleBookmark={() => toggleBookmark(tip.id)}
+                  isBookmarked={bookmarks.has(tip._id)}
+                  onToggleBookmark={() => toggleBookmark(tip._id)}
+                  onView={() => trackView(tip._id)}
                   index={i}
                 />
               ))}
@@ -328,11 +384,13 @@ function TipCard({
   tip,
   isBookmarked,
   onToggleBookmark,
+  onView,
   index,
 }: {
-  tip: StyleTip;
+  tip: DbStyleTip;
   isBookmarked: boolean;
   onToggleBookmark: () => void;
+  onView: () => void;
   index: number;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -347,7 +405,10 @@ function TipCard({
       <GlassCard padding="sm" className="overflow-hidden">
         <div
           className="flex cursor-pointer items-start gap-3"
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => {
+            if (!expanded) onView();
+            setExpanded(!expanded);
+          }}
         >
           <div
             className={cn(
@@ -368,6 +429,11 @@ function TipCard({
               >
                 {tip.category}
               </span>
+              {tip.viewCount > 0 && (
+                <span className="text-[9px] text-[#1A1A2E]/25">
+                  {tip.viewCount} views
+                </span>
+              )}
             </div>
             <h3 className="mt-1 text-sm font-semibold text-[#1A1A2E]">
               {tip.title}

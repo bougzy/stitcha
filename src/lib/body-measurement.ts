@@ -596,7 +596,9 @@ export function calculateMeasurements(
     if (elbowY > sideShoulderY && elbowY < sideHipY) {
       // Elbow typically aligns slightly below the waist
       const elbowRatio = (elbowY - sideShoulderY) / (sideHipY - sideShoulderY);
-      waistRatio = Math.max(0.40, Math.min(0.65, elbowRatio - 0.03));
+      const elbowBased = Math.max(0.40, Math.min(0.65, elbowRatio - 0.03));
+      // Blend: 70% elbow-derived, 30% default anthropometric ratio
+      waistRatio = waistRatio * 0.3 + elbowBased * 0.7;
     }
   }
   const waistY = shoulderMidY + (hipMidY - shoulderMidY) * waistRatio;
@@ -676,9 +678,18 @@ export function calculateMeasurements(
   hips = clampMeasurement(hips, ranges.hips.min, ranges.hips.max);
 
   /* ---- Neck circumference (gender-calibrated) ---- */
+  // Neck diameter derived from ear-to-ear distance (head width proxy)
   const earDist = dist2D(front[L.LEFT_EAR], front[L.RIGHT_EAR], frontW, frontH);
-  const neckWidth = cm(earDist) * R.neckWidthFromEars;
-  const neck = clampMeasurement(neckWidth * Math.PI * R.neckCircFactor, ranges.neck.min, ranges.neck.max);
+  const neckDiameter = cm(earDist) * R.neckWidthFromEars;
+  let neck: number;
+  if (side && sideW && sideH) {
+    // Ellipse approximation: neck is slightly flatter front-to-back
+    const neckDepth = neckDiameter * (gender === "female" ? 0.85 : 0.90);
+    neck = ellipseCirc(neckDiameter / 2, neckDepth / 2);
+  } else {
+    neck = neckDiameter * Math.PI;
+  }
+  neck = clampMeasurement(neck, ranges.neck.min, ranges.neck.max);
 
   /* ---- Thigh circumference (gender-calibrated) ---- */
   const thighWidthEstimate = hipWidthCm * R.thighWidthFromHip;

@@ -8,6 +8,7 @@ import { useState, type ReactNode } from "react";
 import { InstallPrompt } from "@/components/common/install-prompt";
 import { OfflineBanner } from "@/components/common/offline-banner";
 import { CommandPalette } from "@/components/common/command-palette";
+import { SyncIndicator } from "@/components/common/sync-indicator";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -64,6 +65,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Command palette (Cmd+K) */}
       <CommandPalette />
+
+      {/* Sync status indicator */}
+      <SyncIndicator />
     </div>
   );
 }

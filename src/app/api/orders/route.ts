@@ -7,6 +7,7 @@ import { Client } from "@/lib/models/client";
 import { Designer } from "@/lib/models/designer";
 import { orderSchema } from "@/lib/validations";
 import { logActivity } from "@/lib/models/activity-log";
+import { CalendarEvent } from "@/lib/models/calendar-event";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/orders                                                           */
@@ -183,6 +184,18 @@ export async function POST(request: Request) {
     await Designer.findByIdAndUpdate(designerId, {
       $inc: { "lifetimeCounts.totalOrdersCreated": 1 },
     });
+
+    // Auto-create calendar deadline event if order has a due date
+    if (parsed.data.dueDate) {
+      CalendarEvent.create({
+        designerId,
+        title: `Due: ${parsed.data.title}`,
+        date: new Date(parsed.data.dueDate),
+        type: "deadline",
+        orderId: order._id,
+        color: "#ef4444",
+      }).catch(() => {}); // fire-and-forget
+    }
 
     // Audit log
     logActivity({

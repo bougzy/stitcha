@@ -196,24 +196,81 @@ export async function GET() {
       Math.floor((now.getTime() - memberSince.getTime()) / (30 * 24 * 60 * 60 * 1000))
     );
 
+    // Monthly challenges — rotating set based on current month
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const currentMonth = monthNames[now.getMonth()];
+
+    // Get this month's data for challenge progress
+    const [ordersThisMonth, clientsThisMonth, paymentsThisMonth, onTimeThisMonth] = await Promise.all([
+      Order.countDocuments({ designerId, createdAt: { $gte: thisMonthStart } }),
+      Client.countDocuments({ designerId: designerObjectId, createdAt: { $gte: thisMonthStart } }),
+      Order.countDocuments({ designerId, paymentStatus: "paid", updatedAt: { $gte: thisMonthStart } }),
+      Order.countDocuments({
+        designerId,
+        status: "delivered",
+        dueDate: { $exists: true },
+        updatedAt: { $gte: thisMonthStart },
+        $expr: { $lte: ["$updatedAt", "$dueDate"] },
+      }),
+    ]);
+
+    // 4 rotating challenges (change by month index)
+    const monthIdx = now.getMonth();
+    const challengePool = [
+      { id: "deliver5", title: "Deliver 5 orders", description: "Complete 5 deliveries this month", target: 5, current: deliveredThisMonth, xpBonus: 150, icon: "📦" },
+      { id: "newclients3", title: "Add 3 new clients", description: "Grow your client base", target: 3, current: clientsThisMonth, xpBonus: 100, icon: "🤝" },
+      { id: "fullpay4", title: "Collect 4 full payments", description: "Get fully paid on 4 orders", target: 4, current: paymentsThisMonth, xpBonus: 120, icon: "💰" },
+      { id: "ontime3", title: "3 on-time deliveries", description: "Deliver 3 orders before deadline", target: 3, current: onTimeThisMonth, xpBonus: 100, icon: "⏰" },
+      { id: "orders8", title: "Create 8 orders", description: "Take on 8 new orders", target: 8, current: ordersThisMonth, xpBonus: 130, icon: "✂️" },
+      { id: "deliver10", title: "Deliver 10 orders", description: "A true power month", target: 10, current: deliveredThisMonth, xpBonus: 250, icon: "🔥" },
+    ];
+
+    // Pick 4 challenges based on month (rotate through pool)
+    const challenges = [
+      challengePool[(monthIdx * 2) % challengePool.length],
+      challengePool[(monthIdx * 2 + 1) % challengePool.length],
+      challengePool[(monthIdx * 2 + 2) % challengePool.length],
+      challengePool[(monthIdx * 2 + 3) % challengePool.length],
+    ].map((c) => ({
+      ...c,
+      progress: Math.min(100, Math.round((c.current / c.target) * 100)),
+      completed: c.current >= c.target,
+    }));
+
+    // Add challenge bonus XP for completed challenges
+    const challengeBonusXP = challenges.reduce(
+      (sum, c) => sum + (c.completed ? c.xpBonus : 0),
+      0
+    );
+    totalXP += challengeBonusXP;
+
+    // Recalculate tier after adding challenge XP
+    const finalTier = getTier(totalXP);
+    const finalNextTier = getNextTier(totalXP);
+    const finalXpInCurrentTier = totalXP - finalTier.minXP;
+    const finalXpForNextTier = finalNextTier ? finalNextTier.minXP - finalTier.minXP : 1;
+    const finalProgressPercent = finalNextTier
+      ? Math.min(100, Math.round((finalXpInCurrentTier / finalXpForNextTier) * 100))
+      : 100;
+
     return NextResponse.json({
       success: true,
       data: {
         xp: totalXP,
         tier: {
-          name: currentTier.name,
-          title: currentTier.title,
-          icon: currentTier.icon,
-          color: currentTier.color,
+          name: finalTier.name,
+          title: finalTier.title,
+          icon: finalTier.icon,
+          color: finalTier.color,
         },
-        nextTier: nextTier
+        nextTier: finalNextTier
           ? {
-              title: nextTier.title,
-              icon: nextTier.icon,
-              xpNeeded: nextTier.minXP - totalXP,
+              title: finalNextTier.title,
+              icon: finalNextTier.icon,
+              xpNeeded: finalNextTier.minXP - totalXP,
             }
           : null,
-        progress: progressPercent,
+        progress: finalProgressPercent,
         stats: {
           totalOrders,
           deliveredOrders,
@@ -236,6 +293,11 @@ export async function GET() {
           measurements: clientsWithMeasurements * XP_VALUES.measurementTaken,
           onTime: onTimeDeliveries * XP_VALUES.onTimeDelivery,
           portfolio: ordersWithGallery * XP_VALUES.portfolioPhoto,
+          challenges: challengeBonusXP,
+        },
+        challenges: {
+          month: currentMonth,
+          items: challenges,
         },
       },
     });

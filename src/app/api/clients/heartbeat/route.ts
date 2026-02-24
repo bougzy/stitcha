@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Order } from "@/lib/models/order";
 import { Client } from "@/lib/models/client";
+import { Outreach } from "@/lib/models/outreach";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/clients/heartbeat                                                 */
@@ -24,6 +25,10 @@ interface ClientHeartbeat {
   lastOrderTitle: string | null;
   suggestedAction: string;
   suggestedMessage: string;
+  lastOutreachDate: string | null;
+  lastOutreachType: string | null;
+  isRepeatClient: boolean;
+  paymentReliability: "excellent" | "good" | "poor";
 }
 
 export async function GET() {
@@ -73,6 +78,19 @@ export async function GET() {
       { $sort: { createdAt: -1 } },
     ]);
 
+    // Fetch latest outreach per client in a single query
+    const latestOutreach = await Outreach.aggregate([
+      { $match: { designerId: designerObjectId } },
+      { $sort: { sentAt: -1 } },
+      { $group: { _id: "$clientId", lastType: { $first: "$type" }, lastDate: { $first: "$sentAt" } } },
+    ]);
+    const outreachMap = new Map(
+      latestOutreach.map((o: { _id: mongoose.Types.ObjectId; lastType: string; lastDate: Date }) => [
+        String(o._id),
+        { type: o.lastType, date: o.lastDate },
+      ])
+    );
+
     const heartbeats: ClientHeartbeat[] = [];
 
     for (const client of clientsWithOrders) {
@@ -101,10 +119,16 @@ export async function GET() {
           )
         : null;
 
-      // Determine temperature
+      // Richer scoring: factor in repeat orders, payment reliability, outreach
+      const isRepeatClient = totalOrders >= 2;
+      const paymentRatio = totalSpent > 0 ? totalPaid / totalSpent : 1;
+      const paymentReliability: "excellent" | "good" | "poor" =
+        paymentRatio >= 0.9 ? "excellent" : paymentRatio >= 0.6 ? "good" : "poor";
+
+      // Determine base temperature from time
       let temperature: "hot" | "warm" | "cold" | "dormant";
       if (daysSinceLastOrder === null) {
-        temperature = "cold"; // No orders ever
+        temperature = "cold";
       } else if (daysSinceLastOrder <= 14) {
         temperature = "hot";
       } else if (daysSinceLastOrder <= 45) {
@@ -115,12 +139,28 @@ export async function GET() {
         temperature = "dormant";
       }
 
+      // Boost temperature for repeat/high-value/reliable clients
+      if (temperature === "cold" && isRepeatClient && paymentReliability !== "poor") {
+        temperature = "warm"; // repeat clients with good payment stay warmer
+      }
+      if (temperature === "warm" && totalSpent > 100000 && paymentReliability === "excellent") {
+        temperature = "hot"; // high-value reliable clients are always hot
+      }
+
       // Has active order? Override to hot
       const hasActive = orders.some(
         (o: { status: string }) =>
           !["delivered", "cancelled"].includes(o.status)
       );
       if (hasActive) temperature = "hot";
+
+      // Outreach data
+      const clientOutreach = outreachMap.get(String(client._id));
+      const lastOutreachDate = clientOutreach?.date ? new Date(clientOutreach.date).toISOString() : null;
+      const lastOutreachType = clientOutreach?.type || null;
+      const daysSinceOutreach = clientOutreach?.date
+        ? Math.floor((now.getTime() - new Date(clientOutreach.date).getTime()) / 86400000)
+        : null;
 
       // Generate suggested action and message
       let suggestedAction = "";
@@ -156,13 +196,17 @@ export async function GET() {
         phone: client.phone,
         temperature,
         daysSinceLastOrder,
-        daysSinceLastContact: daysSinceLastOrder, // Using last order as proxy
+        daysSinceLastContact: daysSinceOutreach ?? daysSinceLastOrder,
         totalOrders,
         totalSpent,
         outstandingBalance: Math.max(0, outstandingBalance),
         lastOrderTitle: lastOrder?.title || null,
         suggestedAction,
         suggestedMessage,
+        lastOutreachDate,
+        lastOutreachType,
+        isRepeatClient,
+        paymentReliability,
       });
     }
 

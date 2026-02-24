@@ -1261,6 +1261,26 @@ export default function ClientScanPage() {
                       className="h-full w-full object-cover"
                     />
                   )}
+                  {/* Pose alignment overlay */}
+                  <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-20" viewBox="0 0 100 133" fill="none">
+                    {/* Head */}
+                    <ellipse cx="50" cy="14" rx="7" ry="9" stroke="#C75B39" strokeWidth="0.8" strokeDasharray="2 2" />
+                    {/* Neck */}
+                    <line x1="50" y1="23" x2="50" y2="28" stroke="#C75B39" strokeWidth="0.6" strokeDasharray="2 2" />
+                    {/* Shoulders */}
+                    <line x1="32" y1="30" x2="68" y2="30" stroke="#C75B39" strokeWidth="0.8" strokeDasharray="2 2" />
+                    {/* Torso */}
+                    <path d="M 35 30 L 37 68 L 63 68 L 65 30" stroke="#C75B39" strokeWidth="0.6" strokeDasharray="2 2" />
+                    {/* Arms */}
+                    <line x1="32" y1="30" x2="24" y2="62" stroke="#C75B39" strokeWidth="0.5" strokeDasharray="2 2" />
+                    <line x1="68" y1="30" x2="76" y2="62" stroke="#C75B39" strokeWidth="0.5" strokeDasharray="2 2" />
+                    {/* Legs */}
+                    <line x1="42" y1="68" x2="40" y2="120" stroke="#C75B39" strokeWidth="0.6" strokeDasharray="2 2" />
+                    <line x1="58" y1="68" x2="60" y2="120" stroke="#C75B39" strokeWidth="0.6" strokeDasharray="2 2" />
+                    {/* Feet markers */}
+                    <line x1="35" y1="122" x2="45" y2="122" stroke="#C75B39" strokeWidth="0.6" strokeDasharray="1 1" />
+                    <line x1="55" y1="122" x2="65" y2="122" stroke="#C75B39" strokeWidth="0.6" strokeDasharray="1 1" />
+                  </svg>
                   <div className="absolute left-2 top-2">
                     <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-[#1A1A2E] shadow-sm backdrop-blur-sm">
                       FRONT
@@ -1281,6 +1301,25 @@ export default function ClientScanPage() {
                       className="h-full w-full object-cover"
                     />
                   )}
+                  {/* Side pose alignment overlay */}
+                  <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-20" viewBox="0 0 100 133" fill="none">
+                    {/* Head */}
+                    <ellipse cx="48" cy="14" rx="6" ry="9" stroke="#D4A853" strokeWidth="0.8" strokeDasharray="2 2" />
+                    {/* Neck */}
+                    <line x1="48" y1="23" x2="50" y2="28" stroke="#D4A853" strokeWidth="0.6" strokeDasharray="2 2" />
+                    {/* Torso profile */}
+                    <path d="M 44 30 C 42 40, 40 55, 42 68" stroke="#D4A853" strokeWidth="0.6" strokeDasharray="2 2" />
+                    <path d="M 56 30 C 58 40, 56 55, 54 68" stroke="#D4A853" strokeWidth="0.6" strokeDasharray="2 2" />
+                    {/* Shoulder line */}
+                    <line x1="44" y1="30" x2="56" y2="30" stroke="#D4A853" strokeWidth="0.8" strokeDasharray="2 2" />
+                    {/* Arm */}
+                    <line x1="52" y1="32" x2="48" y2="62" stroke="#D4A853" strokeWidth="0.5" strokeDasharray="2 2" />
+                    {/* Legs */}
+                    <line x1="46" y1="68" x2="44" y2="120" stroke="#D4A853" strokeWidth="0.6" strokeDasharray="2 2" />
+                    <line x1="52" y1="68" x2="52" y2="120" stroke="#D4A853" strokeWidth="0.6" strokeDasharray="2 2" />
+                    {/* Foot marker */}
+                    <line x1="38" y1="122" x2="56" y2="122" stroke="#D4A853" strokeWidth="0.6" strokeDasharray="1 1" />
+                  </svg>
                   <div className="absolute left-2 top-2">
                     <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-[#1A1A2E] shadow-sm backdrop-blur-sm">
                       SIDE

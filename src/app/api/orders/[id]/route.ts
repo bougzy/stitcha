@@ -6,6 +6,7 @@ import { Order } from "@/lib/models/order";
 import { Designer } from "@/lib/models/designer";
 import { logActivity } from "@/lib/models/activity-log";
 import { checkRolePermission } from "@/lib/subscription";
+import { isValidTransition, getNextStatuses } from "@/lib/order-transitions";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/orders/[id]                                                      */
@@ -125,16 +126,34 @@ export async function PUT(
       "receiptSent",
     ];
 
+    // Validate status transition BEFORE building update
+    if (body.status && body.status !== existingOrder.status) {
+      if (!isValidTransition(existingOrder.status, body.status)) {
+        const allowed = getNextStatuses(existingOrder.status);
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Cannot change status from "${existingOrder.status}" to "${body.status}"`,
+            allowedTransitions: allowed,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const update: Record<string, unknown> = {};
+    const warnings: string[] = [];
     for (const field of allowedFields) {
       if (body[field] !== undefined) {
         // Enforce read-only after in-progress
         if (isInProgress && LOCKED_AFTER_IN_PROGRESS.includes(field)) {
-          continue; // silently skip locked fields
+          warnings.push(`"${field}" is locked once production has started`);
+          continue;
         }
         // Price Lock: only owners can modify price
         if (!isOwner && OWNER_ONLY_FIELDS.includes(field)) {
-          continue; // silently skip owner-only fields
+          warnings.push(`Only the account owner can modify "${field}"`);
+          continue;
         }
         update[field] = body[field];
       }
@@ -142,7 +161,7 @@ export async function PUT(
 
     if (Object.keys(update).length === 0) {
       return NextResponse.json(
-        { success: false, error: isInProgress ? "These fields are locked once production has started" : "No valid fields to update" },
+        { success: false, error: warnings.length > 0 ? warnings.join(". ") : "No valid fields to update" },
         { status: 400 }
       );
     }
@@ -203,6 +222,7 @@ export async function PUT(
       success: true,
       message: "Order updated successfully",
       data: JSON.parse(JSON.stringify(transformed)),
+      ...(warnings.length > 0 && { warnings }),
     });
   } catch (error) {
     console.error("PUT /api/orders/[id] error:", error);
