@@ -15,8 +15,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MeasurementGuide, MeasurementGuideToggle } from "@/components/clients/measurement-guide";
+import { UnitToggle } from "@/components/common/unit-toggle";
+import { useUnitPreference } from "@/hooks/use-unit-preference";
+import { cmToDisplayInches, parseMeasurementInput } from "@/lib/utils";
 import {
   GARMENT_PRESETS,
+  MEASUREMENT_GROUPS,
   MEASUREMENT_TYPES,
   SIZE_CHART_FEMALE,
   SIZE_CHART_MALE,
@@ -151,30 +155,43 @@ export function MeasurementForm({
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<MeasurementInput>({
     resolver: zodResolver(measurementSchema),
     defaultValues: {
-      bust: initialData?.bust ?? undefined,
-      waist: initialData?.waist ?? undefined,
-      hips: initialData?.hips ?? undefined,
-      shoulder: initialData?.shoulder ?? undefined,
-      armLength: initialData?.armLength ?? undefined,
-      inseam: initialData?.inseam ?? undefined,
-      neck: initialData?.neck ?? undefined,
-      chest: initialData?.chest ?? undefined,
-      backLength: initialData?.backLength ?? undefined,
-      frontLength: initialData?.frontLength ?? undefined,
+      bust:         initialData?.bust ?? undefined,
+      waist:        initialData?.waist ?? undefined,
+      hips:         initialData?.hips ?? undefined,
+      shoulder:     initialData?.shoulder ?? undefined,
+      armLength:    initialData?.armLength ?? undefined,
+      inseam:       initialData?.inseam ?? undefined,
+      neck:         initialData?.neck ?? undefined,
+      chest:        initialData?.chest ?? undefined,
+      backLength:   initialData?.backLength ?? undefined,
+      frontLength:  initialData?.frontLength ?? undefined,
       sleeveLength: initialData?.sleeveLength ?? undefined,
-      wrist: initialData?.wrist ?? undefined,
-      thigh: initialData?.thigh ?? undefined,
-      knee: initialData?.knee ?? undefined,
-      calf: initialData?.calf ?? undefined,
-      ankle: initialData?.ankle ?? undefined,
-      height: initialData?.height ?? undefined,
-      weight: initialData?.weight ?? undefined,
+      wrist:        initialData?.wrist ?? undefined,
+      thigh:        initialData?.thigh ?? undefined,
+      knee:         initialData?.knee ?? undefined,
+      calf:         initialData?.calf ?? undefined,
+      ankle:        initialData?.ankle ?? undefined,
+      height:       initialData?.height ?? undefined,
+      weight:       initialData?.weight ?? undefined,
+      // New fields
+      underBust:      (initialData as Record<string, number | undefined>)?.underBust,
+      roundArm:       (initialData as Record<string, number | undefined>)?.roundArm,
+      blouseLength:   (initialData as Record<string, number | undefined>)?.blouseLength,
+      fullLength:     (initialData as Record<string, number | undefined>)?.fullLength,
+      halfLength:     (initialData as Record<string, number | undefined>)?.halfLength,
+      halfSleeve:     (initialData as Record<string, number | undefined>)?.halfSleeve,
+      crotchLength:   (initialData as Record<string, number | undefined>)?.crotchLength,
+      shoulderToBust: (initialData as Record<string, number | undefined>)?.shoulderToBust,
+      shoulderToHip:  (initialData as Record<string, number | undefined>)?.shoulderToHip,
     },
   });
+
+  const { unit, toggle } = useUnitPreference();
 
   const allValues = watch();
 
@@ -404,17 +421,20 @@ export function MeasurementForm({
         </div>
       </div>
 
-      {/* ---- Garment-specific measurement fields ---- */}
+      {/* ---- Garment-specific measurement fields, grouped ---- */}
       <div>
-        <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#1A1A2E]">
-          Body Measurements
-          {selectedGarment !== "all" && (
-            <span className="text-[10px] font-normal text-[#1A1A2E]/40">
-              ({filteredMeasurements.length} fields for{" "}
-              {GARMENT_PRESETS[selectedGarment]?.label})
-            </span>
-          )}
-        </h4>
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="flex items-center gap-2 text-sm font-semibold text-[#1A1A2E]">
+            Body Measurements
+            {selectedGarment !== "all" && (
+              <span className="text-[10px] font-normal text-[#1A1A2E]/40">
+                ({filteredMeasurements.length} fields for{" "}
+                {GARMENT_PRESETS[selectedGarment]?.label})
+              </span>
+            )}
+          </h4>
+          <UnitToggle unit={unit} onToggle={toggle} size="sm" />
+        </div>
 
         {/* Visual measurement guide */}
         {focusedField && (
@@ -426,42 +446,94 @@ export function MeasurementForm({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {filteredMeasurements.map((measurement) => (
-            <div key={measurement.key} className="space-y-1.5">
-              <div className="flex items-center gap-1">
-                <label className="block text-xs font-medium text-[#1A1A2E]/70">
-                  {measurement.label}
-                </label>
-                <MeasurementGuideToggle
-                  measurementKey={measurement.key}
-                  gender={clientGender}
-                />
+        {/* Grouped fields */}
+        {(["circumference", "length", "point-to-point"] as const).map((groupKey) => {
+          const groupInfo = MEASUREMENT_GROUPS[groupKey];
+          const groupFields = filteredMeasurements.filter(
+            (m) => "group" in m && m.group === groupKey
+          );
+          if (groupFields.length === 0) return null;
+          return (
+            <div key={groupKey} className="mb-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[#1A1A2E]/40">
+                {groupInfo.label}
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {groupFields.map((measurement) => {
+                  const fieldKey = measurement.key as keyof MeasurementInput;
+                  const isAiEst = "aiEstimated" in measurement && measurement.aiEstimated;
+                  // Get current cm value for display placeholder
+                  const rawCmVal = allValues[fieldKey];
+                  const cmVal = typeof rawCmVal === "number" && !isNaN(rawCmVal) ? rawCmVal : null;
+
+                  return (
+                    <div key={measurement.key} className="space-y-1.5">
+                      <div className="flex items-center gap-1">
+                        <label className="block text-xs font-medium text-[#1A1A2E]/70">
+                          {measurement.label}
+                        </label>
+                        {isAiEst && (
+                          <span
+                            title="This field uses AI estimation — verify with tape"
+                            className="cursor-help text-[9px] text-amber-500"
+                          >
+                            ★
+                          </span>
+                        )}
+                        <MeasurementGuideToggle
+                          measurementKey={measurement.key}
+                          gender={clientGender}
+                        />
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step={unit === "in" ? "0.5" : "0.1"}
+                          placeholder={
+                            cmVal
+                              ? unit === "in"
+                                ? String(cmToDisplayInches(cmVal))
+                                : String(cmVal)
+                              : "0"
+                          }
+                          onBlur={(e) => {
+                            // When field loses focus, convert entered value to cm and store
+                            const raw = e.target.value;
+                            if (!raw) return;
+                            const asCm = parseMeasurementInput(raw, unit);
+                            if (asCm !== null) {
+                              setValue(fieldKey, asCm, { shouldValidate: true });
+                            }
+                            setFocusedField(null);
+                          }}
+                          onFocus={() => setFocusedField(measurement.key)}
+                          defaultValue={
+                            cmVal
+                              ? unit === "in"
+                                ? String(cmToDisplayInches(cmVal))
+                                : String(cmVal)
+                              : undefined
+                          }
+                          className="glass-input flex h-9 w-full rounded-lg px-3 py-1.5 pr-10 text-sm text-[#1A1A2E] placeholder:text-[#1A1A2E]/30 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#1A1A2E]/40">
+                          {unit}
+                        </span>
+                        {/* Hidden registered field to hold the cm value */}
+                        <input type="hidden" {...register(fieldKey, { valueAsNumber: true })} />
+                      </div>
+                      {errors[fieldKey] && (
+                        <p className="text-[10px] text-destructive">
+                          {errors[fieldKey]?.message}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="0"
-                  {...register(measurement.key as keyof MeasurementInput, {
-                    valueAsNumber: true,
-                  })}
-                  onFocus={() => setFocusedField(measurement.key)}
-                  onBlur={() => setFocusedField(null)}
-                  className="glass-input flex h-9 w-full rounded-lg px-3 py-1.5 pr-10 text-sm text-[#1A1A2E] placeholder:text-[#1A1A2E]/30 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#1A1A2E]/40">
-                  {measurement.unit}
-                </span>
-              </div>
-              {errors[measurement.key as keyof MeasurementInput] && (
-                <p className="text-[10px] text-destructive">
-                  {errors[measurement.key as keyof MeasurementInput]?.message}
-                </p>
-              )}
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
 
       {/* Save Button */}

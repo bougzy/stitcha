@@ -45,6 +45,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { MeasurementForm } from "@/components/clients/measurement-form";
+import { GuidedTapeMeasure } from "@/components/clients/guided-tape-measure";
+import { MeasurementDisplay } from "@/components/clients/measurement-display";
 import { ClientInsights } from "@/components/clients/client-insights";
 import { EaseCalculator } from "@/components/common/ease-calculator";
 import { FabricCalculator } from "@/components/common/fabric-calculator";
@@ -57,7 +59,6 @@ import {
   formatPhone,
   formatDate,
   generateScanLink,
-  measurementToInches,
 } from "@/lib/utils";
 import type { Client, Measurements, Order } from "@/types";
 import type { MeasurementInput } from "@/lib/validations";
@@ -97,12 +98,12 @@ export default function ClientDetailPage() {
   const [measurementHistory, setMeasurementHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [measurementDialogOpen, setMeasurementDialogOpen] = useState(false);
+  const [measurementMode, setMeasurementMode] = useState<"guided" | "form">("guided");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [savingMeasurements, setSavingMeasurements] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
-  const [measurementUnit, setMeasurementUnit] = useState<"cm" | "in">("cm");
   const [reviewAdjustments, setReviewAdjustments] = useState<Record<string, number>>({});
   const [approvingMeasurements, setApprovingMeasurements] = useState(false);
   const [plausibilityWarnings, setPlausibilityWarnings] = useState<MeasurementWarning[]>([]);
@@ -672,49 +673,7 @@ export default function ClientDetailPage() {
                   </div>
                 )}
 
-                {/* Unit toggle */}
-                <div className="mb-4">
-                  <button
-                    onClick={() => setMeasurementUnit(u => u === "cm" ? "in" : "cm")}
-                    className="rounded-full border border-[#1A1A2E]/10 bg-white/60 px-3 py-1 text-xs font-medium text-[#1A1A2E]/60 transition-colors hover:bg-white/80"
-                  >
-                    {measurementUnit === "cm" ? "Switch to inches" : "Switch to cm"}
-                  </button>
-                </div>
-
-                {/* Height and Weight */}
-                {(measurements.height || measurements.weight) && (
-                  <div className="mb-4 flex gap-4">
-                    {measurements.height && (
-                      <div className="rounded-xl bg-[#C75B39]/5 px-4 py-2">
-                        <p className="text-xs text-[#1A1A2E]/50">Height</p>
-                        <p className="text-lg font-semibold text-[#1A1A2E]">
-                          {measurementUnit === "cm"
-                            ? measurements.height
-                            : measurementToInches(measurements.height as number)}{" "}
-                          <span className="text-xs font-normal text-[#1A1A2E]/40">
-                            {measurementUnit === "cm" ? "cm" : "in"}
-                          </span>
-                        </p>
-                      </div>
-                    )}
-                    {measurements.weight && (
-                      <div className="rounded-xl bg-[#D4A853]/10 px-4 py-2">
-                        <p className="text-xs text-[#1A1A2E]/50">Weight</p>
-                        <p className="text-lg font-semibold text-[#1A1A2E]">
-                          {measurementUnit === "cm"
-                            ? measurements.weight
-                            : (Number(measurements.weight) * 2.205).toFixed(1)}{" "}
-                          <span className="text-xs font-normal text-[#1A1A2E]/40">
-                            {measurementUnit === "cm" ? "kg" : "lbs"}
-                          </span>
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Measurement grid — review mode or read-only */}
+                {/* Measurement Display — grouped with unit toggle + confidence */}
                 {reviewMode ? (
                   <>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -774,7 +733,7 @@ export default function ClientDetailPage() {
                               >
                                 <ChevronUp className="h-3.5 w-3.5" />
                               </button>
-                              <span className="text-[10px] text-[#1A1A2E]/35">{type.unit}</span>
+                              <span className="text-[10px] text-[#1A1A2E]/35">cm</span>
                             </div>
                           </div>
                         );
@@ -799,51 +758,10 @@ export default function ClientDetailPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {MEASUREMENT_TYPES.map((type) => {
-                      const value =
-                        measurements[type.key as keyof Measurements] as
-                          | number
-                          | undefined;
-                      if (!value) return null;
-                      const warning = plausibilityWarnings.find((w) => w.field === type.key);
-                      return (
-                        <div
-                          key={type.key}
-                          className={cn(
-                            "rounded-xl border px-3 py-2.5",
-                            warning
-                              ? warning.severity === "critical"
-                                ? "border-red-300/40 bg-red-50/20"
-                                : "border-amber-300/40 bg-amber-50/20"
-                              : "border-white/30 bg-white/30"
-                          )}
-                        >
-                          <div className="flex items-center justify-between">
-                            <p className="text-[11px] font-medium text-[#1A1A2E]/45">
-                              {type.label}
-                            </p>
-                            {warning && (
-                              <AlertTriangle
-                                className={cn(
-                                  "h-3 w-3",
-                                  warning.severity === "critical" ? "text-red-400" : "text-amber-400"
-                                )}
-                              />
-                            )}
-                          </div>
-                          <p className="mt-0.5 text-base font-semibold text-[#1A1A2E]">
-                            {measurementUnit === "cm"
-                              ? value
-                              : measurementToInches(value)}{" "}
-                            <span className="text-[10px] font-normal text-[#1A1A2E]/35">
-                              {measurementUnit === "cm" ? type.unit : "in"}
-                            </span>
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <MeasurementDisplay
+                    measurements={measurements}
+                    hideEmpty
+                  />
                 )}
               </>
             ) : (
@@ -913,7 +831,7 @@ export default function ClientDetailPage() {
                             <div>
                               <p className="text-[10px] text-[#1A1A2E]/40">{type.label}</p>
                               <p className="text-sm font-semibold text-[#1A1A2E]">
-                                {curr} <span className="text-[10px] font-normal text-[#1A1A2E]/35">{type.unit}</span>
+                                {curr} <span className="text-[10px] font-normal text-[#1A1A2E]/35">cm</span>
                               </p>
                             </div>
                             <div
@@ -1064,29 +982,64 @@ export default function ClientDetailPage() {
           open={measurementDialogOpen}
           onOpenChange={setMeasurementDialogOpen}
         >
-          <DialogContent className="max-w-2xl">
-            <DialogClose />
+          <DialogContent className="max-h-[90vh] overflow-y-auto max-w-2xl">
             <DialogHeader>
               <DialogTitle>
-                {measurements ? "Edit Measurements" : "Add Measurements"}
+                {measurements ? "Update Measurements" : "Add Measurements"}
               </DialogTitle>
-              <DialogDescription>
-                Enter body measurements in centimeters. Leave fields empty if
-                not applicable.
-              </DialogDescription>
+              {/* Mode switcher */}
+              <div className="flex gap-1 rounded-lg border border-[#1A1A2E]/8 bg-[#1A1A2E]/4 p-1 mt-2">
+                <button
+                  onClick={() => setMeasurementMode("guided")}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
+                    measurementMode === "guided"
+                      ? "bg-white text-[#1A1A2E] shadow-sm"
+                      : "text-[#1A1A2E]/50 hover:text-[#1A1A2E]"
+                  }`}
+                >
+                  📏 Guided Tape Measure
+                </button>
+                <button
+                  onClick={() => setMeasurementMode("form")}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
+                    measurementMode === "form"
+                      ? "bg-white text-[#1A1A2E] shadow-sm"
+                      : "text-[#1A1A2E]/50 hover:text-[#1A1A2E]"
+                  }`}
+                >
+                  📝 Enter All at Once
+                </button>
+              </div>
+              <p className="text-xs text-[#1A1A2E]/40 mt-1">
+                {measurementMode === "guided"
+                  ? "Step-by-step guide — works on any phone, any location."
+                  : "Enter all measurements at once — good for experienced tailors."}
+              </p>
             </DialogHeader>
-            <div className="mt-4">
-              <MeasurementForm
-                initialData={measurements || undefined}
-                previousData={
-                  measurementHistory.length > 0
-                    ? measurementHistory[measurementHistory.length - 1]
-                    : null
-                }
-                clientGender={client.gender}
-                onSubmit={handleSaveMeasurements}
-                loading={savingMeasurements}
-              />
+
+            <div className="mt-2">
+              {measurementMode === "guided" ? (
+                <GuidedTapeMeasure
+                  gender={client.gender}
+                  onComplete={async (vals) => {
+                    await handleSaveMeasurements(vals as any);
+                    setMeasurementDialogOpen(false);
+                  }}
+                  onCancel={() => setMeasurementDialogOpen(false)}
+                />
+              ) : (
+                <MeasurementForm
+                  initialData={measurements || undefined}
+                  previousData={
+                    measurementHistory.length > 0
+                      ? measurementHistory[measurementHistory.length - 1]
+                      : null
+                  }
+                  clientGender={client.gender}
+                  onSubmit={handleSaveMeasurements}
+                  loading={savingMeasurements}
+                />
+              )}
             </div>
           </DialogContent>
         </Dialog>

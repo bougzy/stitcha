@@ -34,6 +34,7 @@ export interface IOrder extends Document {
   isDeleted: boolean;
   deletedAt?: Date;
   receiptSent: boolean;
+  lastChasedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -78,6 +79,7 @@ const OrderSchema = new Schema<IOrder>(
     isDeleted: { type: Boolean, default: false },
     deletedAt: { type: Date },
     receiptSent: { type: Boolean, default: false },
+    lastChasedAt: { type: Date },
     statusHistory: [
       {
         status: { type: String, required: true },

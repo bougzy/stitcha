@@ -233,4 +233,77 @@ export const whatsapp = {
         : `Hi ${clientName}! 👋\n\nIt's been a while since we connected — I just wanted to check in and see how you're doing.\n\nDo you have any upcoming events or new outfits in mind? I'd love to help! 🙏`;
     return waLink(phone, msg);
   },
+
+  /** Gentle first payment reminder (3-6 days overdue) */
+  chaseGentle(
+    phone: string,
+    clientName: string,
+    orderTitle: string,
+    balance: number,
+    businessName: string,
+    lang: MessageLanguage = "english"
+  ): string {
+    const msg =
+      lang === "pidgin"
+        ? `Hello ${clientName}! 😊\n\nI just dey remind you small about your *${orderTitle}* order.\n\nBalance wey remain: *${amt(balance)}*\n\nYou fit pay through bank transfer or cash — just tell me which one you prefer. 🙏\n\n— ${businessName}`
+        : `Hi ${clientName},\n\nJust a friendly reminder about your *${orderTitle}* order.\n\nOutstanding balance: *${amt(balance)}*\n\nYou can pay via bank transfer or cash — just let me know which works for you. 🙏\n\n— ${businessName}`;
+    return waLink(phone, msg);
+  },
+
+  /** Firm second reminder (7-13 days overdue) */
+  chaseFirm(
+    phone: string,
+    clientName: string,
+    orderTitle: string,
+    balance: number,
+    daysOverdue: number,
+    businessName: string,
+    lang: MessageLanguage = "english"
+  ): string {
+    const msg =
+      lang === "pidgin"
+        ? `Hello ${clientName},\n\nI don reach out before about your *${orderTitle}* order. E still remain *${amt(balance)}* wey don dey outstanding for ${daysOverdue} days.\n\nAbeg, I need you to arrange the payment so we can settle this matter. The work don finish.\n\nPlease reply to confirm when you go pay. Thank you.\n\n— ${businessName}`
+        : `Hello ${clientName},\n\nI have reached out previously regarding your *${orderTitle}* order. There is an outstanding balance of *${amt(balance)}* that has been pending for ${daysOverdue} days.\n\nPlease arrange payment so we can settle this matter. The work has been completed.\n\nKindly reply to confirm when payment will be made. Thank you.\n\n— ${businessName}`;
+    return waLink(phone, msg);
+  },
+
+  /** Final notice (14+ days overdue) */
+  chaseFinal(
+    phone: string,
+    clientName: string,
+    orderTitle: string,
+    balance: number,
+    daysOverdue: number,
+    businessName: string,
+    lang: MessageLanguage = "english"
+  ): string {
+    const msg =
+      lang === "pidgin"
+        ? `Dear ${clientName},\n\nI don send message come your side many times about the *${amt(balance)}* balance for your *${orderTitle}* order. E don dey ${daysOverdue} days now.\n\nI need immediate payment to resolve this matter. Please contact me today.\n\nThank you.\n— ${businessName}`
+        : `Dear ${clientName},\n\nDespite multiple reminders, the outstanding balance of *${amt(balance)}* for your *${orderTitle}* order remains unpaid after ${daysOverdue} days.\n\nThis is a final notice. Please contact me immediately to arrange full payment.\n\nThank you.\n— ${businessName}`;
+    return waLink(phone, msg);
+  },
+
+  /** New order confirmation sent to client */
+  orderConfirmed(
+    phone: string,
+    clientName: string,
+    orderTitle: string,
+    price: number,
+    depositPaid: number,
+    dueDate: string | undefined,
+    businessName: string,
+    lang: MessageLanguage = "english"
+  ): string {
+    const balance = price - depositPaid;
+    const due = dueDate
+      ? new Date(dueDate).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })
+      : "TBC";
+    const msg =
+      lang === "pidgin"
+        ? `Hello ${clientName}! 🎉\n\nYour order don confirm!\n\n*Order:* ${orderTitle}\n*Total:* ${amt(price)}\n*Deposit paid:* ${amt(depositPaid)}\n*Balance remaining:* ${amt(balance)}\n*Ready date:* ${due}\n\nWe go keep you updated as the work progress. Thank you! 🙏\n\n— ${businessName}`
+        : `Hi ${clientName},\n\nYour order has been confirmed! 🎉\n\n*Order:* ${orderTitle}\n*Total price:* ${amt(price)}\n*Deposit paid:* ${amt(depositPaid)}\n*Balance remaining:* ${amt(balance)}\n*Expected ready date:* ${due}\n\nWe will keep you updated as your order progresses. Thank you! 🙏\n\n— ${businessName}`;
+    return waLink(phone, msg);
+  },
 };
+

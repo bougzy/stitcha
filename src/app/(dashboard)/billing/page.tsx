@@ -4,35 +4,31 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
-  Crown,
-  Zap,
   CheckCircle2,
-  ArrowRight,
+  Zap,
   Shield,
-  Star,
-  Users,
+  MessageCircle,
   ScanLine,
-  FileText,
-  Clock,
-  Sparkles,
+  Crown,
+  ArrowRight,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
 import { SectionLoader } from "@/components/common/loading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { SUBSCRIPTION_PLANS } from "@/lib/constants";
+import { SUBSCRIPTION_PLANS, CREDIT_PACKS, SCAN_CREDIT_PRICE } from "@/lib/constants";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { Designer } from "@/types";
 
 export default function BillingPage() {
-  const [designer, setDesigner] = useState<Designer | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [designer,  setDesigner]  = useState<Designer | null>(null);
+  const [loading,   setLoading]   = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
     try {
-      const res = await fetch("/api/designer/profile");
+      const res  = await fetch("/api/designer/profile");
       const json = await res.json();
       if (json.success) setDesigner(json.data);
     } catch {
@@ -42,29 +38,22 @@ export default function BillingPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   async function handleUpgrade(planId: string) {
     setUpgrading(planId);
     try {
-      const res = await fetch("/api/billing/checkout", {
-        method: "POST",
+      const res  = await fetch("/api/billing/checkout", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId }),
+        body:    JSON.stringify({ planId }),
       });
       const json = await res.json();
       if (json.needsConfig) {
-        toast.error(
-          "Payment system not configured. Contact support or set PAYSTACK_SECRET_KEY."
-        );
+        toast.error("Payment system not configured. Contact support.");
         return;
       }
-      if (!json.success) {
-        toast.error(json.error || "Failed to initiate checkout");
-        return;
-      }
+      if (!json.success) { toast.error(json.error || "Failed to initiate checkout"); return; }
       window.location.href = json.data.authorizationUrl;
     } catch {
       toast.error("Failed to connect to payment system");
@@ -73,492 +62,247 @@ export default function BillingPage() {
     }
   }
 
-  const currentPlan = designer
-    ? SUBSCRIPTION_PLANS.find((p) => p.id === designer.subscription) ||
-      SUBSCRIPTION_PLANS[0]
-    : SUBSCRIPTION_PLANS[0];
+  if (loading) return <SectionLoader />;
 
-  const currentPlanIndex = SUBSCRIPTION_PLANS.findIndex(
-    (p) => p.id === currentPlan.id
-  );
+  const currentSub = designer?.subscription || "free";
+
+  /* ------------------------------------------------------------------ */
+  /*  Plan order: free → plus → pro                                      */
+  /* ------------------------------------------------------------------ */
+  const planOrder: Record<string, number> = { free: 0, plus: 1, pro: 2 };
+  const currentLevel = planOrder[currentSub] ?? 0;
 
   return (
     <PageTransition>
-      <div className="space-y-6">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <h1 className="text-2xl font-bold tracking-tight text-[#1A1A2E] lg:text-3xl">
-            Billing & Plans
+      <div className="space-y-8">
+
+        {/* ---- Header ---- */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+          <h1 className="text-2xl font-bold tracking-tight text-[#1A1A2E]">
+            Plans & Billing
           </h1>
           <p className="mt-1 text-sm text-[#1A1A2E]/50">
-            Manage your subscription and view your usage
+            Stitcha is free forever for the essentials. Upgrade only when you need AI scanning.
           </p>
         </motion.div>
 
-        {loading ? (
-          <div className="space-y-4">
-            <SectionLoader lines={3} />
-            <SectionLoader lines={5} />
-          </div>
-        ) : designer ? (
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1, duration: 0.4 }}
-            className="space-y-6"
-          >
-            {/* Current Plan Banner */}
-            <GlassCard
-              gradientBorder
-              padding="lg"
-              className="overflow-hidden"
-            >
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#C75B39] to-[#D4A853] shadow-lg shadow-[#C75B39]/15">
-                    <Crown className="h-7 w-7 text-white" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-bold text-[#1A1A2E]">
-                        {currentPlan.name} Plan
-                      </h2>
-                      <Badge variant="secondary">{designer.subscription}</Badge>
-                    </div>
-                    <p className="text-sm text-[#1A1A2E]/50">
-                      {currentPlan.price === 0
-                        ? "Free forever"
-                        : `${formatCurrency(currentPlan.price)}/month`}
-                      {designer.subscriptionExpiry && (
-                        <span className="ml-2 text-xs text-[#1A1A2E]/40">
-                          Renews{" "}
-                          {new Date(
-                            designer.subscriptionExpiry
-                          ).toLocaleDateString("en-NG", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                {currentPlan.price === 0 && (
-                  <Button
-                    className="gap-2"
-                    onClick={() => handleUpgrade("pro")}
-                    loading={upgrading === "pro"}
-                  >
-                    <Zap className="h-4 w-4" />
-                    Upgrade Now
-                  </Button>
-                )}
-              </div>
-            </GlassCard>
-
-            {/* Usage Overview */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <GlassCard padding="md">
+        {/* ---- Current plan badge ---- */}
+        {designer && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+            <GlassCard padding="md">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
-                    <Users className="h-5 w-5 text-blue-500" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#C75B39]/10">
+                    {currentSub === "pro" ? <Crown className="h-5 w-5 text-[#C75B39]" /> : <Shield className="h-5 w-5 text-[#C75B39]" />}
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-[#1A1A2E]/50">
-                      Lifetime Clients
-                    </p>
-                    <p className="text-lg font-bold text-[#1A1A2E]">
-                      {designer.lifetimeCounts?.totalClientsCreated ?? 0}
-                      {currentPlan.clientLimit !== -1 && (
-                        <span className="text-sm font-normal text-[#1A1A2E]/40">
-                          {" "}
-                          / {currentPlan.clientLimit}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                {currentPlan.clientLimit !== -1 && (
-                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#1A1A2E]/8">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all"
-                      style={{
-                        width: `${Math.min(100, ((designer.lifetimeCounts?.totalClientsCreated ?? 0) / currentPlan.clientLimit) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </GlassCard>
-
-              <GlassCard padding="md">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50">
-                    <ScanLine className="h-5 w-5 text-purple-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-[#1A1A2E]/50">
-                      AI Scans (Monthly)
-                    </p>
-                    <p className="text-lg font-bold text-[#1A1A2E]">
-                      {designer.lifetimeCounts?.totalScansUsed ?? 0}
-                      {currentPlan.scanLimit !== -1 && (
-                        <span className="text-sm font-normal text-[#1A1A2E]/40">
-                          {" "}
-                          / {currentPlan.scanLimit}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                {currentPlan.scanLimit !== -1 && (
-                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#1A1A2E]/8">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-purple-500 to-purple-400 transition-all"
-                      style={{
-                        width: `${Math.min(100, ((designer.lifetimeCounts?.totalScansUsed ?? 0) / currentPlan.scanLimit) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </GlassCard>
-
-              <GlassCard padding="md">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
-                    <FileText className="h-5 w-5 text-emerald-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-[#1A1A2E]/50">
-                      Total Orders
-                    </p>
-                    <p className="text-lg font-bold text-[#1A1A2E]">
-                      {designer.lifetimeCounts?.totalOrdersCreated ?? 0}
-                    </p>
-                  </div>
-                </div>
-              </GlassCard>
-            </div>
-
-            {/* Plan Comparison */}
-            <div>
-              <h2 className="mb-4 text-lg font-bold text-[#1A1A2E]">
-                Choose Your Plan
-              </h2>
-              <div className="grid gap-4 lg:grid-cols-3">
-                {SUBSCRIPTION_PLANS.map((plan, index) => {
-                  const isCurrent = plan.id === designer.subscription;
-                  const isDowngrade = index < currentPlanIndex;
-                  const isUpgrade = index > currentPlanIndex;
-
-                  return (
-                    <motion.div
-                      key={plan.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.1 + index * 0.1, duration: 0.4 }}
-                    >
-                      <GlassCard
-                        padding="lg"
-                        className={cn(
-                          "relative h-full",
-                          isCurrent && "ring-2 ring-[#C75B39]/30",
-                          plan.badge === "Most Popular" &&
-                            !isCurrent &&
-                            "ring-1 ring-[#D4A853]/30"
-                        )}
-                      >
-                        {/* Badge */}
-                        {plan.badge && (
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                            <Badge
-                              variant={
-                                isCurrent ? "default" : "secondary"
-                              }
-                              className="whitespace-nowrap text-[10px]"
-                            >
-                              {isCurrent ? "Current Plan" : plan.badge}
-                            </Badge>
-                          </div>
-                        )}
-                        {isCurrent && !plan.badge && (
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                            <Badge variant="default" className="text-[10px]">
-                              Current Plan
-                            </Badge>
-                          </div>
-                        )}
-
-                        <div className="pt-2">
-                          {/* Plan icon & name */}
-                          <div className="mb-4 flex items-center gap-3">
-                            <div
-                              className={cn(
-                                "flex h-11 w-11 items-center justify-center rounded-xl",
-                                plan.id === "free" &&
-                                  "bg-[#1A1A2E]/5",
-                                plan.id === "pro" &&
-                                  "bg-gradient-to-br from-[#C75B39]/15 to-[#D4A853]/15",
-                                plan.id === "business" &&
-                                  "bg-gradient-to-br from-[#D4A853]/15 to-[#C75B39]/15"
-                              )}
-                            >
-                              {plan.id === "free" && (
-                                <Star className="h-5 w-5 text-[#1A1A2E]/50" />
-                              )}
-                              {plan.id === "pro" && (
-                                <Zap className="h-5 w-5 text-[#C75B39]" />
-                              )}
-                              {plan.id === "business" && (
-                                <Crown className="h-5 w-5 text-[#D4A853]" />
-                              )}
-                            </div>
-                            <div>
-                              <h3 className="text-lg font-bold text-[#1A1A2E]">
-                                {plan.name}
-                              </h3>
-                              <div className="flex items-baseline gap-1">
-                                <span className="text-2xl font-bold text-[#1A1A2E]">
-                                  {plan.price === 0
-                                    ? "Free"
-                                    : formatCurrency(plan.price)}
-                                </span>
-                                {plan.price > 0 && (
-                                  <span className="text-sm text-[#1A1A2E]/40">
-                                    /mo
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Limits summary */}
-                          <div className="mb-4 flex gap-3">
-                            <div className="flex items-center gap-1.5 rounded-lg bg-[#1A1A2E]/[0.03] px-2.5 py-1.5">
-                              <Users className="h-3.5 w-3.5 text-[#1A1A2E]/40" />
-                              <span className="text-xs font-medium text-[#1A1A2E]/60">
-                                {plan.clientLimit === -1
-                                  ? "Unlimited"
-                                  : plan.clientLimit}{" "}
-                                clients
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1.5 rounded-lg bg-[#1A1A2E]/[0.03] px-2.5 py-1.5">
-                              <ScanLine className="h-3.5 w-3.5 text-[#1A1A2E]/40" />
-                              <span className="text-xs font-medium text-[#1A1A2E]/60">
-                                {plan.scanLimit === -1
-                                  ? "Unlimited"
-                                  : plan.scanLimit}{" "}
-                                scans
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Features */}
-                          <div className="mb-6 space-y-2.5">
-                            {plan.features.map((feature) => (
-                              <div
-                                key={feature}
-                                className="flex items-start gap-2.5"
-                              >
-                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                                <span className="text-sm text-[#1A1A2E]/70">
-                                  {feature}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Action */}
-                          {isCurrent ? (
-                            <div className="rounded-xl border border-[#C75B39]/20 bg-[#C75B39]/5 py-3 text-center">
-                              <span className="text-sm font-semibold text-[#C75B39]">
-                                Your Current Plan
-                              </span>
-                            </div>
-                          ) : isUpgrade ? (
-                            <Button
-                              className="w-full gap-2"
-                              onClick={() => handleUpgrade(plan.id)}
-                              loading={upgrading === plan.id}
-                            >
-                              <Zap className="h-4 w-4" />
-                              Upgrade to {plan.name}
-                              <ArrowRight className="h-4 w-4" />
-                            </Button>
-                          ) : isDowngrade ? (
-                            <Button
-                              variant="outline"
-                              className="w-full"
-                              disabled
-                            >
-                              Downgrade (Coming Soon)
-                            </Button>
-                          ) : null}
-
-                          {/* Trial info */}
-                          {plan.trialDays > 0 && isUpgrade && (
-                            <p className="mt-2 flex items-center justify-center gap-1 text-xs text-[#1A1A2E]/40">
-                              <Clock className="h-3 w-3" />
-                              {plan.trialDays}-day free trial included
-                            </p>
-                          )}
-                        </div>
-                      </GlassCard>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Feature Comparison Table */}
-            <GlassCard padding="lg">
-              <h2 className="mb-4 text-lg font-bold text-[#1A1A2E]">
-                Feature Comparison
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#1A1A2E]/8">
-                      <th className="pb-3 text-left font-medium text-[#1A1A2E]/50">
-                        Feature
-                      </th>
-                      {SUBSCRIPTION_PLANS.map((plan) => (
-                        <th
-                          key={plan.id}
-                          className={cn(
-                            "pb-3 text-center font-semibold",
-                            plan.id === designer.subscription
-                              ? "text-[#C75B39]"
-                              : "text-[#1A1A2E]"
-                          )}
-                        >
-                          {plan.name}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#1A1A2E]/5">
-                    {[
-                      {
-                        feature: "Clients",
-                        values: ["10 lifetime", "Unlimited", "Unlimited"],
-                      },
-                      {
-                        feature: "AI Scans",
-                        values: ["3/month", "50/month", "Unlimited"],
-                      },
-                      {
-                        feature: "Order Management",
-                        values: ["Basic", "Full", "Full"],
-                      },
-                      {
-                        feature: "PDF Invoices",
-                        values: [false, true, true],
-                      },
-                      {
-                        feature: "Financial Dashboard",
-                        values: [false, true, true],
-                      },
-                      {
-                        feature: "WhatsApp Integration",
-                        values: ["Templates", "Full", "Full"],
-                      },
-                      {
-                        feature: "Offline Mode",
-                        values: [false, true, true],
-                      },
-                      {
-                        feature: "Public Profile",
-                        values: [false, false, true],
-                      },
-                      {
-                        feature: "Client Portal",
-                        values: [false, false, true],
-                      },
-                      {
-                        feature: "Team Collaboration",
-                        values: [false, false, true],
-                      },
-                      {
-                        feature: "Priority Support",
-                        values: [false, false, true],
-                      },
-                    ].map((row) => (
-                      <tr key={row.feature}>
-                        <td className="py-3 text-[#1A1A2E]/70">
-                          {row.feature}
-                        </td>
-                        {row.values.map((val, i) => (
-                          <td key={i} className="py-3 text-center">
-                            {typeof val === "boolean" ? (
-                              val ? (
-                                <CheckCircle2 className="mx-auto h-4 w-4 text-emerald-500" />
-                              ) : (
-                                <span className="text-[#1A1A2E]/20">--</span>
-                              )
-                            ) : (
-                              <span className="text-xs font-medium text-[#1A1A2E]/60">
-                                {val}
-                              </span>
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </GlassCard>
-
-            {/* FAQ / Info */}
-            <GlassCard padding="lg">
-              <div className="flex items-center gap-2 mb-4">
-                <Shield className="h-5 w-5 text-[#1A1A2E]/40" />
-                <h2 className="text-lg font-bold text-[#1A1A2E]">
-                  Billing FAQ
-                </h2>
-              </div>
-              <div className="space-y-4">
-                {[
-                  {
-                    q: "How does billing work?",
-                    a: "Plans are billed monthly via Paystack. You can upgrade anytime and your new plan takes effect immediately.",
-                  },
-                  {
-                    q: "What happens to my data if I downgrade?",
-                    a: "Your data is always safe. If you downgrade, you keep all existing clients and orders but new limits apply to future actions.",
-                  },
-                  {
-                    q: "Why are client slots permanent?",
-                    a: "Client slots use lifetime counts to prevent gaming the system. Deleting a client does not free up a slot — this ensures fair usage across all tiers.",
-                  },
-                  {
-                    q: "Can I cancel anytime?",
-                    a: "Yes, you can cancel your subscription at any time. Your plan remains active until the end of the billing period.",
-                  },
-                ].map((faq) => (
-                  <div key={faq.q}>
                     <p className="text-sm font-semibold text-[#1A1A2E]">
-                      {faq.q}
+                      Current plan: <span className="capitalize text-[#C75B39]">{currentSub}</span>
                     </p>
-                    <p className="mt-1 text-sm text-[#1A1A2E]/55">{faq.a}</p>
+                    <p className="text-xs text-[#1A1A2E]/50">
+                      {currentSub === "free"
+                        ? "Free forever — no expiry"
+                        : designer.subscriptionExpiry
+                        ? `Renews ${new Date(designer.subscriptionExpiry).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}`
+                        : "Active subscription"}
+                    </p>
                   </div>
-                ))}
+                </div>
+                {currentSub === "free" && (
+                  <Badge variant="outline" className="text-emerald-600 border-emerald-300">
+                    Free forever
+                  </Badge>
+                )}
               </div>
             </GlassCard>
           </motion.div>
-        ) : (
-          <GlassCard padding="lg">
-            <p className="text-center text-sm text-[#1A1A2E]/50">
-              Unable to load billing information. Please refresh the page.
-            </p>
-          </GlassCard>
         )}
+
+        {/* ---- Pricing grid ---- */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {SUBSCRIPTION_PLANS.map((plan) => {
+              const planLevel   = planOrder[plan.id] ?? 0;
+              const isCurrent   = plan.id === currentSub;
+              const isDowngrade = planLevel < currentLevel;
+              const isUpgrade   = planLevel > currentLevel;
+
+              return (
+                <div
+                  key={plan.id}
+                  className={cn(
+                    "relative rounded-2xl border p-5 transition-all",
+                    isCurrent
+                      ? "border-[#C75B39]/40 bg-[#C75B39]/[0.04] shadow-md"
+                      : "border-[#1A1A2E]/8 bg-white/40 hover:border-[#C75B39]/20 hover:bg-white/60"
+                  )}
+                >
+                  {plan.badge && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                      <span className="rounded-full bg-[#C75B39] px-3 py-1 text-[10px] font-bold text-white shadow">
+                        {plan.badge}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="mb-4">
+                    <h3 className="text-lg font-bold text-[#1A1A2E]">{plan.name}</h3>
+                    <p className="mt-0.5 text-xs text-[#1A1A2E]/50">{(plan as any).description}</p>
+                    <div className="mt-3 flex items-baseline gap-1">
+                      {plan.price === 0 ? (
+                        <span className="text-3xl font-black text-[#1A1A2E]">Free</span>
+                      ) : (
+                        <>
+                          <span className="text-3xl font-black text-[#1A1A2E]">
+                            {formatCurrency(plan.price)}
+                          </span>
+                          <span className="text-sm text-[#1A1A2E]/40">/month</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mb-5 space-y-2">
+                    {plan.features.map((f) => (
+                      <div key={f} className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                        <span className="text-xs text-[#1A1A2E]/65">{f}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {isCurrent ? (
+                    <div className="flex items-center justify-center gap-2 rounded-lg bg-[#C75B39]/10 py-2">
+                      <CheckCircle2 className="h-4 w-4 text-[#C75B39]" />
+                      <span className="text-sm font-semibold text-[#C75B39]">Current Plan</span>
+                    </div>
+                  ) : isUpgrade ? (
+                    <Button
+                      className="w-full"
+                      onClick={() => handleUpgrade(plan.id)}
+                      loading={upgrading === plan.id}
+                    >
+                      Upgrade to {plan.name}
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <Button variant="outline" className="w-full" disabled>
+                      {isDowngrade ? "Downgrade" : "Select"}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+
+        {/* ---- Pay-per-scan section ---- */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <GlassCard padding="lg">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#D4A853]/10">
+                <ScanLine className="h-5 w-5 text-[#D4A853]" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-[#1A1A2E]">Pay-per-scan</h3>
+                <p className="text-xs text-[#1A1A2E]/50">
+                  No subscription needed. Buy scan credits and use them whenever.
+                </p>
+              </div>
+              <div className="ml-auto text-right">
+                <p className="text-lg font-bold text-[#1A1A2E]">
+                  {formatCurrency(SCAN_CREDIT_PRICE)}
+                </p>
+                <p className="text-xs text-[#1A1A2E]/40">per scan</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              {CREDIT_PACKS.map((pack) => (
+                <button
+                  key={pack.id}
+                  onClick={() => handleUpgrade(pack.id)}
+                  disabled={!!upgrading}
+                  className={cn(
+                    "rounded-xl border border-[#1A1A2E]/8 bg-white/40 p-3 text-center transition-all hover:border-[#C75B39]/30 hover:bg-white/60",
+                    upgrading === pack.id && "opacity-70"
+                  )}
+                >
+                  <p className="text-lg font-bold text-[#1A1A2E]">{pack.scans}</p>
+                  <p className="text-[10px] text-[#1A1A2E]/40">scans</p>
+                  <p className="mt-1 text-sm font-semibold text-[#C75B39]">
+                    {formatCurrency(pack.price)}
+                  </p>
+                  {pack.badge && (
+                    <span className="mt-1 inline-block rounded-full bg-[#C75B39]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#C75B39]">
+                      {pack.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        {/* ---- Why upgrade section ---- */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <GlassCard padding="lg">
+            <h3 className="mb-4 font-semibold text-[#1A1A2E]">
+              Why upgrade to Plus?
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                {
+                  icon: ScanLine,
+                  title: "AI body scanning in 2 minutes",
+                  desc: "No tape measure needed. Send a scan link to your client, get 25+ measurements.",
+                },
+                {
+                  icon: Zap,
+                  title: "Measurement history",
+                  desc: "Track how your clients' measurements change over time. Never make the wrong size again.",
+                },
+                {
+                  icon: MessageCircle,
+                  title: "Shareable measurement cards",
+                  desc: "Share a professional measurement card with clients via WhatsApp. Looks impressive.",
+                },
+                {
+                  icon: Shield,
+                  title: "Financial dashboard",
+                  desc: "See your monthly revenue, outstanding payments, and profit margins at a glance.",
+                },
+              ].map(({ icon: Icon, title, desc }) => (
+                <div key={title} className="flex gap-3 rounded-xl border border-[#1A1A2E]/6 bg-white/30 p-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#C75B39]/10">
+                    <Icon className="h-4 w-4 text-[#C75B39]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#1A1A2E]">{title}</p>
+                    <p className="text-xs text-[#1A1A2E]/50">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {currentSub === "free" && (
+              <div className="mt-4">
+                <Button
+                  className="w-full"
+                  onClick={() => handleUpgrade("plus")}
+                  loading={upgrading === "plus"}
+                >
+                  Start 14-day free trial — Plus plan
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+                <p className="mt-2 text-center text-xs text-[#1A1A2E]/35">
+                  No charge until trial ends. Cancel anytime.
+                </p>
+              </div>
+            )}
+          </GlassCard>
+        </motion.div>
+
       </div>
     </PageTransition>
   );

@@ -19,7 +19,7 @@ export interface Designer {
   bio?: string;
   avatar?: string;
   specialties: string[];
-  subscription: "free" | "pro" | "business";
+  subscription: "free" | "plus" | "pro";
   subscriptionExpiry?: string;
   paystackCustomerId?: string;
   role: DesignerRole;
@@ -61,7 +61,9 @@ export interface Client {
 }
 
 export interface Measurements {
+  // Circumference
   bust?: number;
+  underBust?: number;
   waist?: number;
   hips?: number;
   shoulder?: number;
@@ -79,6 +81,21 @@ export interface Measurements {
   ankle?: number;
   height?: number;
   weight?: number;
+  // New fields
+  roundArm?: number;
+  blouseLength?: number;
+  fullLength?: number;
+  halfLength?: number;
+  halfSleeve?: number;
+  crotchLength?: number;
+  shoulderToBust?: number;
+  shoulderToHip?: number;
+  // AI-estimated flags (keys that are estimated, not directly measured)
+  aiEstimatedFields?: string[];
+  // Per-measurement confidence scores (0-1 per key)
+  confidenceScores?: Record<string, number>;
+  // Manual overrides (key → value the tailor set manually)
+  manualOverrides?: Record<string, number>;
   source: "manual" | "ai_scan";
   confidence?: number;
   measuredAt: string;

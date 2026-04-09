@@ -141,7 +141,7 @@ export default function AdminOverviewPage() {
           {[
             {
               id: "free",
-              name: "Starter",
+              name: "Free",
               icon: Star,
               color: "text-gray-400",
               barColor: "bg-gray-400",
@@ -149,7 +149,7 @@ export default function AdminOverviewPage() {
             },
             {
               id: "pro",
-              name: "Professional",
+              name: "Plus",
               icon: Zap,
               color: "text-[#C75B39]",
               barColor: "bg-[#C75B39]",

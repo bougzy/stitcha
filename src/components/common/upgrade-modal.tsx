@@ -28,7 +28,7 @@ export function UpgradeModal({
   resource = "clients",
   onUpgrade,
 }: UpgradeModalProps) {
-  const proPlan = SUBSCRIPTION_PLANS.find((p) => p.id === "pro");
+  const proPlan = SUBSCRIPTION_PLANS.find((p) => p.id === "plus");
 
   if (!open) return null;
 
@@ -60,7 +60,7 @@ export function UpgradeModal({
               >
                 <TrendingUp className="h-8 w-8" />
               </motion.div>
-              <h2 className="text-xl font-bold">Your Business is Growing!</h2>
+              <h2 className="text-xl font-bold">Unlock AI Body Scanning</h2>
               <p className="mt-2 text-sm text-white/80">
                 You&apos;ve created {lifetimeUsed} of {limit} lifetime {resource} on the {planName} plan.
                 Time to level up!
@@ -113,7 +113,7 @@ export function UpgradeModal({
                 size="lg"
                 onClick={() => {
                   if (onUpgrade) {
-                    onUpgrade("pro");
+                    onUpgrade("plus");
                   } else {
                     // Fallback: redirect to settings
                     window.location.href = "/settings";
@@ -121,7 +121,7 @@ export function UpgradeModal({
                 }}
               >
                 <Zap className="h-4 w-4" />
-                Upgrade to Professional
+                Upgrade to Plus — ₦1,500/mo
               </Button>
               <button
                 onClick={onClose}

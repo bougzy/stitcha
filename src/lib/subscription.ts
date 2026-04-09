@@ -3,10 +3,22 @@ import type { DesignerRole } from "@/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Subscription enforcement helpers                                           */
+/*                                                                             */
+/*  Plan IDs: "free" | "plus" | "pro"                                         */
+/*  Free  — unlimited clients & orders, NO AI scans                           */
+/*  Plus  — 20 AI scans/month                                                 */
+/*  Pro   — unlimited AI scans, public profile, team                          */
 /* -------------------------------------------------------------------------- */
 
-type PlanId = "free" | "pro" | "business";
-type Action = "create_client" | "create_scan" | "use_ai_scan" | "export_pdf" | "email_notification" | "sms_notification" | "public_profile";
+type PlanId = "free" | "plus" | "pro";
+type Action =
+  | "create_client"
+  | "create_scan"
+  | "use_ai_scan"
+  | "export_pdf"
+  | "email_notification"
+  | "sms_notification"
+  | "public_profile";
 
 function getPlan(subscription: string) {
   return SUBSCRIPTION_PLANS.find((p) => p.id === subscription) || SUBSCRIPTION_PLANS[0];
@@ -14,7 +26,6 @@ function getPlan(subscription: string) {
 
 /**
  * Check whether a designer can perform a specific action based on their plan.
- * Uses LIFETIME counts for clients — deleting clients does NOT free up slots.
  * Returns { allowed, message } — message explains the restriction if any.
  */
 export function checkSubscriptionLimit(
@@ -28,49 +39,51 @@ export function checkSubscriptionLimit(
 
   switch (action) {
     case "create_client": {
-      if (plan.clientLimit === -1) return { allowed: true, message: "" };
-      // Use lifetime count (non-decreasing) to prevent gaming via delete-and-recreate
-      const effectiveCount = lifetimeCount ?? currentCount;
-      if (effectiveCount !== undefined && effectiveCount >= plan.clientLimit) {
-        return {
-          allowed: false,
-          message: `You've created ${effectiveCount} clients (lifetime limit: ${plan.clientLimit} on ${plan.name}). Your business has outgrown the free tier — upgrade to Professional for unlimited clients.`,
-        };
-      }
+      // All plans have unlimited clients
       return { allowed: true, message: "" };
     }
 
     case "create_scan":
     case "use_ai_scan": {
-      if (plan.scanLimit === -1) return { allowed: true, message: "" };
-      if (currentCount !== undefined && currentCount >= plan.scanLimit) {
-        const upgradeTarget = planId === "free" ? "Pro" : "Business";
+      // Free plan has no AI scans at all
+      if (planId === "free") {
         return {
           allowed: false,
-          message: `You've used all ${plan.scanLimit} scans for this month on the ${plan.name} plan. Upgrade to ${upgradeTarget} for more scans.`,
+          message: `AI body scanning is available on the Plus plan (₦1,500/month) or via pay-per-scan credits (₦150 per scan). You can still use the guided tape measure entry for free.`,
+        };
+      }
+      // Unlimited scans on Pro
+      if (plan.scanLimit === -1) return { allowed: true, message: "" };
+      // Plus: 20/month limit
+      if (currentCount !== undefined && currentCount >= plan.scanLimit) {
+        return {
+          allowed: false,
+          message: `You have used all ${plan.scanLimit} AI scans for this month on the ${plan.name} plan. Upgrade to Pro for unlimited scans, or buy pay-per-scan credits for ₦150 each.`,
         };
       }
       return { allowed: true, message: "" };
     }
 
     case "export_pdf":
-      return planId === "free"
-        ? { allowed: false, message: "PDF exports are available on the Pro plan and above." }
-        : { allowed: true, message: "" };
+      // PDF is FREE on all plans
+      return { allowed: true, message: "" };
 
     case "email_notification":
+      // Email notifications on Plus and Pro
       return planId === "free"
-        ? { allowed: false, message: "Email notifications are available on the Pro plan and above." }
+        ? { allowed: false, message: "Email notifications are available on the Plus plan and above." }
         : { allowed: true, message: "" };
 
     case "sms_notification":
-      return planId !== "business"
-        ? { allowed: false, message: "SMS notifications are available on the Business plan." }
+      // SMS only on Pro
+      return planId !== "pro"
+        ? { allowed: false, message: "SMS notifications are available on the Pro plan." }
         : { allowed: true, message: "" };
 
     case "public_profile":
-      return planId !== "business"
-        ? { allowed: false, message: "Public profile pages are available on the Business plan." }
+      // Public profile only on Pro
+      return planId !== "pro"
+        ? { allowed: false, message: "Public profile pages are available on the Pro plan." }
         : { allowed: true, message: "" };
 
     default:
@@ -115,9 +128,7 @@ export function checkRolePermission(
   permission: string
 ): { allowed: boolean; message: string } {
   const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.apprentice;
-  if (perms.has(permission)) {
-    return { allowed: true, message: "" };
-  }
+  if (perms.has(permission)) return { allowed: true, message: "" };
   const roleName = role.charAt(0).toUpperCase() + role.slice(1);
   return {
     allowed: false,

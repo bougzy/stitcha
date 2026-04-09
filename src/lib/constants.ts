@@ -10,23 +10,53 @@ export const APP_DESCRIPTION = "AI-powered body measurement platform for fashion
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://stitcha.vercel.app";
 
 export const MEASUREMENT_TYPES = [
-  { key: "bust", label: "Bust", unit: "cm" },
-  { key: "waist", label: "Waist", unit: "cm" },
-  { key: "hips", label: "Hips", unit: "cm" },
-  { key: "shoulder", label: "Shoulder Width", unit: "cm" },
-  { key: "armLength", label: "Arm Length", unit: "cm" },
-  { key: "inseam", label: "Inseam", unit: "cm" },
-  { key: "neck", label: "Neck", unit: "cm" },
-  { key: "chest", label: "Chest", unit: "cm" },
-  { key: "backLength", label: "Back Length", unit: "cm" },
-  { key: "frontLength", label: "Front Length", unit: "cm" },
-  { key: "sleeveLength", label: "Sleeve Length", unit: "cm" },
-  { key: "wrist", label: "Wrist", unit: "cm" },
-  { key: "thigh", label: "Thigh", unit: "cm" },
-  { key: "knee", label: "Knee", unit: "cm" },
-  { key: "calf", label: "Calf", unit: "cm" },
-  { key: "ankle", label: "Ankle", unit: "cm" },
+  // Circumference
+  { key: "bust",             label: "Bust",                   unit: "cm", group: "circumference" },
+  { key: "underBust",        label: "Under Bust",             unit: "cm", group: "circumference", aiEstimated: true },
+  { key: "waist",            label: "Waist",                  unit: "cm", group: "circumference" },
+  { key: "hips",             label: "Hips",                   unit: "cm", group: "circumference" },
+  { key: "chest",            label: "Chest",                  unit: "cm", group: "circumference" },
+  { key: "neck",             label: "Neck",                   unit: "cm", group: "circumference" },
+  { key: "thigh",            label: "Thigh",                  unit: "cm", group: "circumference" },
+  { key: "knee",             label: "Knee",                   unit: "cm", group: "circumference" },
+  { key: "calf",             label: "Calf",                   unit: "cm", group: "circumference" },
+  { key: "wrist",            label: "Wrist",                  unit: "cm", group: "circumference" },
+  { key: "ankle",            label: "Ankle",                  unit: "cm", group: "circumference" },
+  { key: "roundArm",         label: "Round Arm",              unit: "cm", group: "circumference", aiEstimated: true },
+  // Lengths
+  { key: "backLength",       label: "Back Length",            unit: "cm", group: "length" },
+  { key: "frontLength",      label: "Front Length",           unit: "cm", group: "length" },
+  { key: "blouseLength",     label: "Blouse Length",          unit: "cm", group: "length", aiEstimated: true },
+  { key: "fullLength",       label: "Full Length",            unit: "cm", group: "length" },
+  { key: "halfLength",       label: "Half Length",            unit: "cm", group: "length", aiEstimated: true },
+  { key: "armLength",        label: "Arm Length",             unit: "cm", group: "length" },
+  { key: "sleeveLength",     label: "Full Sleeve Length",     unit: "cm", group: "length" },
+  { key: "halfSleeve",       label: "Half Sleeve Length",     unit: "cm", group: "length" },
+  { key: "inseam",           label: "Inseam",                 unit: "cm", group: "length" },
+  { key: "crotchLength",     label: "Crotch Length",          unit: "cm", group: "length", aiEstimated: true },
+  // Point-to-point
+  { key: "shoulder",         label: "Shoulder Width",         unit: "cm", group: "point-to-point" },
+  { key: "shoulderToBust",   label: "Shoulder to Bust Point", unit: "cm", group: "point-to-point", aiEstimated: true },
+  { key: "shoulderToHip",    label: "Shoulder to Hip Line",   unit: "cm", group: "point-to-point", aiEstimated: true },
 ] as const;
+
+export type MeasurementKey = (typeof MEASUREMENT_TYPES)[number]["key"];
+
+/** Grouped for UI display */
+export const MEASUREMENT_GROUPS = {
+  circumference: {
+    label: "Circumference Measurements",
+    keys: ["bust","underBust","waist","hips","chest","neck","thigh","knee","calf","wrist","ankle","roundArm"],
+  },
+  length: {
+    label: "Length Measurements",
+    keys: ["backLength","frontLength","blouseLength","fullLength","halfLength","armLength","sleeveLength","halfSleeve","inseam","crotchLength"],
+  },
+  "point-to-point": {
+    label: "Point-to-Point",
+    keys: ["shoulder","shoulderToBust","shoulderToHip"],
+  },
+} as const;
 
 /* -------------------------------------------------------------------------- */
 /*  Garment → measurement presets                                              */
@@ -37,42 +67,42 @@ export const GARMENT_PRESETS: Record<string, { label: string; icon: string; fiel
   top: {
     label: "Top / Blouse",
     icon: "👕",
-    fields: ["bust", "chest", "shoulder", "neck", "armLength", "sleeveLength", "backLength", "frontLength", "wrist"],
+    fields: ["bust","underBust","chest","shoulder","neck","armLength","sleeveLength","halfSleeve","backLength","frontLength","blouseLength","wrist","roundArm"],
   },
   dress: {
     label: "Dress / Gown",
     icon: "👗",
-    fields: ["bust", "chest", "waist", "hips", "shoulder", "neck", "armLength", "sleeveLength", "backLength", "frontLength", "wrist"],
+    fields: ["bust","underBust","waist","hips","chest","shoulder","neck","armLength","sleeveLength","backLength","frontLength","blouseLength","fullLength","wrist","shoulderToBust","shoulderToHip"],
   },
   trousers: {
     label: "Trousers / Pants",
     icon: "👖",
-    fields: ["waist", "hips", "inseam", "thigh", "knee", "calf", "ankle"],
+    fields: ["waist","hips","inseam","thigh","knee","calf","ankle","crotchLength"],
   },
   skirt: {
     label: "Skirt",
     icon: "🩱",
-    fields: ["waist", "hips", "knee"],
+    fields: ["waist","hips","knee","halfLength"],
   },
   agbada: {
     label: "Agbada / Kaftan",
     icon: "🧥",
-    fields: ["bust", "chest", "shoulder", "neck", "armLength", "sleeveLength", "backLength", "frontLength"],
+    fields: ["bust","chest","shoulder","neck","armLength","sleeveLength","backLength","frontLength","fullLength"],
   },
   suit: {
     label: "Suit / Blazer",
     icon: "🤵",
-    fields: ["bust", "chest", "shoulder", "neck", "armLength", "sleeveLength", "backLength", "frontLength", "waist", "wrist"],
+    fields: ["bust","chest","shoulder","neck","armLength","sleeveLength","backLength","frontLength","waist","wrist","roundArm"],
   },
   jumpsuit: {
     label: "Jumpsuit",
     icon: "🥋",
-    fields: ["bust", "chest", "waist", "hips", "shoulder", "armLength", "sleeveLength", "backLength", "frontLength", "inseam", "thigh", "ankle"],
+    fields: ["bust","underBust","chest","waist","hips","shoulder","armLength","sleeveLength","backLength","frontLength","inseam","thigh","ankle","crotchLength"],
   },
   all: {
     label: "Full Body (All)",
     icon: "📐",
-    fields: ["bust", "waist", "hips", "shoulder", "armLength", "inseam", "neck", "chest", "backLength", "frontLength", "sleeveLength", "wrist", "thigh", "knee", "calf", "ankle"],
+    fields: ["bust","underBust","waist","hips","shoulder","armLength","inseam","neck","chest","backLength","frontLength","sleeveLength","halfSleeve","halfLength","blouseLength","fullLength","wrist","thigh","knee","calf","ankle","roundArm","crotchLength","shoulderToBust","shoulderToHip"],
   },
 } as const;
 
@@ -117,72 +147,85 @@ export const ORDER_STATUSES = [
   { value: "cancelled", label: "Cancelled", color: "destructive" },
 ] as const;
 
+/**
+ * PRICING — Nigerian Market First
+ * Free is genuinely free, no limits on core features.
+ * Plus ₦1,500/month < 2% of a mid-level designer's income.
+ * Pay-per-scan ₦150/scan removes all commitment anxiety.
+ */
 export const SUBSCRIPTION_PLANS = [
   {
     id: "free",
-    name: "Starter",
+    name: "Free",
     price: 0,
     currency: "NGN",
     features: [
-      "Up to 10 clients",
-      "Manual measurements",
-      "AI body scanning (3/month)",
-      "Basic order tracking",
-      "WhatsApp templates",
-    ],
-    clientLimit: 10,
-    scanLimit: 3,
-    trialDays: 0,
-    badge: null,
-  },
-  {
-    id: "pro",
-    name: "Professional",
-    price: 5000,
-    currency: "NGN",
-    features: [
       "Unlimited clients",
-      "AI body scanning (50/month)",
-      "Full order management",
-      "PDF invoices & receipts",
-      "Financial dashboard",
-      "WhatsApp integration",
+      "Unlimited orders",
+      "Guided tape-measure entry",
+      "WhatsApp measurement sharing",
+      "Order tracking & due dates",
+      "Automated payment reminders",
+      "Basic PDF invoices",
       "Offline mode",
     ],
     clientLimit: -1,
-    scanLimit: 50,
-    trialDays: 14,
-    badge: "Most Popular",
+    scanLimit: 0,
+    trialDays: 0,
+    badge: null,
+    description: "Everything a tailor needs to run their business. Free forever.",
   },
   {
-    id: "business",
-    name: "Business",
-    price: 15000,
+    id: "plus",
+    name: "Plus",
+    price: 1500,
     currency: "NGN",
     features: [
-      "Everything in Professional",
+      "Everything in Free",
+      "AI body scanning (20 scans/month)",
+      "Measurement history & change alerts",
+      "Client portal & shareable cards",
+      "Financial dashboard",
+      "Fabric & profit calculator",
+    ],
+    clientLimit: -1,
+    scanLimit: 20,
+    trialDays: 14,
+    badge: "Most Popular",
+    description: "For growing designers who want AI scanning and deeper insights.",
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: 3500,
+    currency: "NGN",
+    features: [
+      "Everything in Plus",
       "Unlimited AI scans",
-      "Public designer profile",
-      "Client portal & sharing",
-      "Priority support",
-      "Team collaboration",
+      "Public designer profile page",
+      "Priority WhatsApp support",
       "Advanced analytics",
+      "Team collaboration (2 staff)",
     ],
     clientLimit: -1,
     scanLimit: -1,
     trialDays: 14,
     badge: "Best Value",
+    description: "For established studios and high-volume designers.",
   },
 ] as const;
+
+/** Pay-per-scan — no subscription needed. ₦150 per AI scan. */
+export const SCAN_CREDIT_PRICE = 150;
 
 /* -------------------------------------------------------------------------- */
 /*  Credit Packs — pay-as-you-go scan credits                                 */
 /* -------------------------------------------------------------------------- */
 
 export const CREDIT_PACKS = [
-  { id: "pack-10", scans: 10, price: 1000, currency: "NGN", label: "Starter Pack", badge: null },
-  { id: "pack-25", scans: 25, price: 2000, currency: "NGN", label: "Growth Pack", badge: "Best Value" as const },
-  { id: "pack-50", scans: 50, price: 3500, currency: "NGN", label: "Pro Pack", badge: null },
+  { id: "pack-5",  scans: 5,  price: 700,  currency: "NGN", label: "Try It",       badge: null },
+  { id: "pack-15", scans: 15, price: 2000, currency: "NGN", label: "Small Studio",  badge: "Best Value" as const },
+  { id: "pack-40", scans: 40, price: 5000, currency: "NGN", label: "Busy Season",   badge: null },
 ] as const;
 
 /* -------------------------------------------------------------------------- */

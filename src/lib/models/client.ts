@@ -2,6 +2,7 @@ import mongoose, { Schema, type Document } from "mongoose";
 
 const MeasurementsSubSchema = new Schema(
   {
+    // Original fields
     bust: Number,
     waist: Number,
     hips: Number,
@@ -20,6 +21,20 @@ const MeasurementsSubSchema = new Schema(
     ankle: Number,
     height: Number,
     weight: Number,
+    // New measurements (all optional — backward compatible)
+    underBust:      Number,
+    roundArm:       Number,
+    blouseLength:   Number,
+    fullLength:     Number,
+    halfLength:     Number,
+    halfSleeve:     Number,
+    crotchLength:   Number,
+    shoulderToBust: Number,
+    shoulderToHip:  Number,
+    // AI metadata
+    aiEstimatedFields: [String],
+    confidenceScores:  { type: Schema.Types.Mixed },
+    manualOverrides:   { type: Schema.Types.Mixed },
     source: { type: String, enum: ["manual", "ai_scan"], default: "manual" },
     confidence: Number,
     measuredAt: { type: Date, default: Date.now },

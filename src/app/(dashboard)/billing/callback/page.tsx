@@ -66,7 +66,7 @@ function BillingCallbackContent() {
           </h2>
           <p className="text-sm text-[#1A1A2E]/60">
             You are now on the{" "}
-            {planName === "pro" ? "Professional" : "Business"} plan.
+            {planName === "pro" ? "Pro" : planName === "plus" ? "Plus" : planName} plan.
           </p>
           <Button onClick={() => router.push("/settings")}>
             Go to Settings

@@ -48,6 +48,10 @@ export interface MeasurementResult {
   measurements: Record<string, number>;
   confidence: number;
   landmarkQuality: number;
+  /** Per-measurement confidence scores 0–1 */
+  confidenceScores: Record<string, number>;
+  /** Keys that are AI-estimated (not directly measured from landmarks) */
+  aiEstimatedFields: string[];
 }
 
 export type BodyGender = "male" | "female";
@@ -721,6 +725,43 @@ export function calculateMeasurements(
   const estimatedBMI = R.averageBMI + bmiAdjustment;
   const weight = clampMeasurement(estimatedBMI * heightM * heightM, 35, 200);
 
+  /* ---- NEW: Derived / estimated measurements ---- */
+  // Under Bust: proportional estimate from bust (female: ~85-90% of bust; male: ~96%)
+  const underBust = round1(clampMeasurement(
+    bust * (gender === "female" ? 0.875 : 0.96),
+    gender === "female" ? 60 : 70,
+    gender === "female" ? 110 : 130
+  ));
+
+  // Round Arm: upper arm circumference — estimate from shoulder width and thigh
+  // Upper arm width ≈ hip_width * thighWidthFromHip * 0.62 (arm is narrower than thigh)
+  const roundArmWidth = hipWidthCm * R.thighWidthFromHip * 0.62;
+  const roundArm = round1(clampMeasurement(roundArmWidth * 2.0, 22, 55));
+
+  // Half Sleeve: shoulder point to elbow = approx 55% of full arm length
+  const halfSleeve = round1(clampMeasurement(armLength * 0.55, 25, 50));
+
+  // Half Length: from shoulder/nape to natural waist = backLength
+  const halfLength = round1(clampMeasurement(backLength, ranges.backLength.min, ranges.backLength.max));
+
+  // Blouse Length: nape to below hip — typically backLength + hip-to-nape extension
+  // From shoulder, hips are roughly at backLength / 0.53 * 0.78 of total torso
+  const blouseLength = round1(clampMeasurement(backLength * 2.1, 45, 90));
+
+  // Full Length: top of shoulder to floor ≈ heightCm - head height (≈ 13-14% of height)
+  const fullLength = round1(clampMeasurement(heightCm * 0.865, 130, 190));
+
+  // Shoulder to Bust Point: from shoulder seam to bust apex
+  // Typically 22-27cm for most women (scales with frontLength)
+  const shoulderToBust = round1(clampMeasurement(frontLength * 0.56, 18, 30));
+
+  // Shoulder to Hip Line: from shoulder down to hip bone level
+  const shoulderToHip = round1(clampMeasurement(backLength * 1.62, 35, 70));
+
+  // Crotch Length: waist through crotch to back waist — hard to estimate from photos
+  // Approximate: inseam * 0.22 + waist / 6 (rough anthropometric proxy)
+  const crotchLength = round1(clampMeasurement(inseam * 0.22 + waist / 6, 22, 38));
+
   /* ---- Confidence score ---- */
   const keyIndices = [
     L.LEFT_SHOULDER, L.RIGHT_SHOULDER,
@@ -738,6 +779,68 @@ export function calculateMeasurements(
   // Full model gives higher base confidence
   const confidence = Math.min(0.95, Math.max(0.55, avgVisibility * 0.85 + sideBonus));
 
+  /* ---- Per-measurement confidence scores ---- */
+  const hasSide = !!side;
+  const shoulderVis = Math.min(
+    (front[L.LEFT_SHOULDER]?.visibility ?? 0) + (front[L.RIGHT_SHOULDER]?.visibility ?? 0),
+    1
+  );
+  const hipVis = Math.min(
+    (front[L.LEFT_HIP]?.visibility ?? 0) + (front[L.RIGHT_HIP]?.visibility ?? 0),
+    1
+  );
+  const kneeVis = Math.min(
+    (front[L.LEFT_KNEE]?.visibility ?? 0) + (front[L.RIGHT_KNEE]?.visibility ?? 0),
+    1
+  );
+  const ankleVis = Math.min(
+    (front[L.LEFT_ANKLE]?.visibility ?? 0) + (front[L.RIGHT_ANKLE]?.visibility ?? 0),
+    1
+  );
+  const wristVis = Math.min(
+    (front[L.LEFT_WRIST]?.visibility ?? 0) + (front[L.RIGHT_WRIST]?.visibility ?? 0),
+    1
+  );
+  const elbowVis = Math.min(
+    (front[L.LEFT_ELBOW]?.visibility ?? 0) + (front[L.RIGHT_ELBOW]?.visibility ?? 0),
+    1
+  );
+
+  const confScores: Record<string, number> = {
+    // Direct measurements — high confidence when landmarks visible
+    bust:          round1(Math.min(0.95, shoulderVis * 0.7 + (hasSide ? 0.25 : 0))),
+    chest:         round1(Math.min(0.95, shoulderVis * 0.7 + (hasSide ? 0.25 : 0))),
+    waist:         round1(Math.min(0.92, hipVis * 0.65 + (hasSide ? 0.22 : 0))),
+    hips:          round1(Math.min(0.92, hipVis * 0.72 + (hasSide ? 0.18 : 0))),
+    shoulder:      round1(Math.min(0.95, shoulderVis)),
+    armLength:     round1(Math.min(0.90, (shoulderVis + elbowVis + wristVis) / 3)),
+    neck:          round1(Math.min(0.85, shoulderVis * 0.75)),
+    backLength:    round1(Math.min(0.88, (shoulderVis + hipVis) / 2)),
+    frontLength:   round1(Math.min(0.85, (shoulderVis + hipVis) / 2)),
+    sleeveLength:  round1(Math.min(0.88, (shoulderVis + elbowVis + wristVis) / 3)),
+    wrist:         round1(Math.min(0.82, wristVis)),
+    thigh:         round1(Math.min(0.80, hipVis * 0.8)),
+    knee:          round1(Math.min(0.82, kneeVis)),
+    calf:          round1(Math.min(0.78, kneeVis * 0.85)),
+    ankle:         round1(Math.min(0.80, ankleVis)),
+    // Estimated measurements — inherently lower confidence
+    underBust:     0.68,
+    roundArm:      0.62,
+    halfSleeve:    0.72,
+    halfLength:    round1(Math.min(0.85, (shoulderVis + hipVis) / 2)),
+    blouseLength:  0.65,
+    fullLength:    0.70,
+    shoulderToBust: 0.60,
+    shoulderToHip:  0.65,
+    crotchLength:   0.52,
+  };
+
+  // Fields that are always AI-estimated (cannot be reliably extracted from photos)
+  const aiEstimatedFields = [
+    "underBust", "roundArm", "blouseLength", "halfLength",
+    "crotchLength", "shoulderToBust", "shoulderToHip",
+  ];
+
   // Cross-validate and nudge anatomically inconsistent measurements
   const raw = {
     bust, waist, hips, shoulder, armLength, inseam, neck, chest,
@@ -748,26 +851,38 @@ export function calculateMeasurements(
 
   return {
     measurements: {
-      bust: round1(validated.bust),
-      waist: round1(validated.waist),
-      hips: round1(validated.hips),
-      shoulder: round1(validated.shoulder),
-      armLength: round1(validated.armLength),
-      inseam: round1(validated.inseam),
-      neck: round1(validated.neck),
-      chest: round1(validated.chest),
-      backLength: round1(validated.backLength),
-      frontLength: round1(validated.frontLength),
-      sleeveLength: round1(validated.sleeveLength),
-      wrist: round1(validated.wrist),
-      thigh: round1(validated.thigh),
-      knee: round1(validated.knee),
-      calf: round1(validated.calf),
-      ankle: round1(validated.ankle),
-      height: round1(heightCm),
-      weight: round1(validated.weight),
+      bust:          round1(validated.bust),
+      waist:         round1(validated.waist),
+      hips:          round1(validated.hips),
+      shoulder:      round1(validated.shoulder),
+      armLength:     round1(validated.armLength),
+      inseam:        round1(validated.inseam),
+      neck:          round1(validated.neck),
+      chest:         round1(validated.chest),
+      backLength:    round1(validated.backLength),
+      frontLength:   round1(validated.frontLength),
+      sleeveLength:  round1(validated.sleeveLength),
+      wrist:         round1(validated.wrist),
+      thigh:         round1(validated.thigh),
+      knee:          round1(validated.knee),
+      calf:          round1(validated.calf),
+      ankle:         round1(validated.ankle),
+      height:        round1(heightCm),
+      weight:        round1(validated.weight),
+      // New fields
+      underBust,
+      roundArm,
+      halfSleeve,
+      halfLength,
+      blouseLength,
+      fullLength,
+      shoulderToBust,
+      shoulderToHip,
+      crotchLength,
     },
-    confidence: round1(confidence),
-    landmarkQuality: round1(avgVisibility),
+    confidence:        round1(confidence),
+    landmarkQuality:   round1(avgVisibility),
+    confidenceScores:  confScores,
+    aiEstimatedFields,
   };
 }

@@ -111,7 +111,7 @@ export default function AdminDesignersPage() {
             />
           </div>
           <div className="flex gap-1.5">
-            {["", "free", "pro", "business"].map((f) => (
+            {["", "free", "plus", "pro"].map((f) => (
               <button
                 key={f}
                 type="button"

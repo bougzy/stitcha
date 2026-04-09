@@ -296,7 +296,7 @@ export default function OnboardingPage() {
                   <div>
                     <h2 className="text-xl font-bold text-[#1A1A2E]">Welcome to Stitcha!</h2>
                     <p className="mt-2 text-sm text-[#1A1A2E]/50">
-                      The smartest way to manage your fashion business in Nigeria
+                      Run your fashion business from your phone — free forever
                     </p>
                   </div>
 
@@ -324,7 +324,7 @@ export default function OnboardingPage() {
                   <div className="flex items-center justify-center gap-2 rounded-xl bg-[#D4A853]/10 px-4 py-2.5">
                     <Gift className="h-4 w-4 text-[#D4A853]" />
                     <span className="text-xs font-medium text-[#D4A853]">
-                      3 free AI scans included with your Starter plan
+                      Unlimited clients, orders & measurements — free forever
                     </span>
                   </div>
                 </div>

@@ -41,6 +41,7 @@ import {
 import { cn, formatCurrency } from "@/lib/utils";
 import { whatsapp } from "@/lib/whatsapp";
 import { haptics } from "@/lib/haptics";
+import { PaymentChaser } from "@/components/common/payment-chaser";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -286,6 +287,11 @@ export default function FinancesPage() {
             <Plus className="h-3.5 w-3.5" />
             Record Payment
           </Button>
+        </motion.div>
+
+        {/* Payment Chaser — prominent at top of finances */}
+        <motion.div variants={itemVariants}>
+          <PaymentChaser />
         </motion.div>
 
         {/* Stats Grid */}
