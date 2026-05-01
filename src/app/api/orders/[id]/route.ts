@@ -124,6 +124,8 @@ export async function PUT(
       "dueDate",
       "notes",
       "receiptSent",
+      "featuredInFeed",
+      "feedCaption",
     ];
 
     // Validate status transition BEFORE building update
@@ -164,6 +166,11 @@ export async function PUT(
         { success: false, error: warnings.length > 0 ? warnings.join(". ") : "No valid fields to update" },
         { status: 400 }
       );
+    }
+
+    // First time the order is toggled into the public feed, stamp featuredAt
+    if (update.featuredInFeed === true && !existingOrder.featuredAt) {
+      update.featuredAt = new Date();
     }
 
     // If status is changing, also push to statusHistory

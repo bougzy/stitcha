@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, ChevronLeft, CheckCircle2, Ruler, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cmToDisplayInches, parseMeasurementInput } from "@/lib/utils";
-import { useUnitPreference } from "@/hooks/use-unit-preference";
-import { UnitToggle } from "@/components/common/unit-toggle";
 
 /**
  * GuidedTapeMeasure
@@ -35,8 +33,8 @@ interface MeasurementStep {
   instruction: string;
   pidgin: string;
   diagram: string;
-  min: number; // cm
-  max: number; // cm
+  min: number; // inches
+  max: number; // inches
   required: boolean;
   group: "circumference" | "length" | "point-to-point";
 }
@@ -48,35 +46,35 @@ const STEPS: MeasurementStep[] = [
     instruction: "Measure around the fullest part of the chest, keeping the tape parallel to the floor.",
     pidgin: "Wrap tape around the biggest part of the breast. Make sure tape dey level all around.",
     diagram: "── tape goes all the way around ──\n     [ fullest point of chest ]",
-    min: 70, max: 150, required: true,
+    min: 27.5, max: 59, required: true,
   },
   {
     key: "waist", label: "Waist", group: "circumference",
     instruction: "Measure around the natural waist — the narrowest part of the torso, usually above the belly button.",
     pidgin: "Find the small-small part of the tummy, above the belly button. Wrap tape around there.",
     diagram: "── tape goes all the way around ──\n   [ narrowest part of tummy ]",
-    min: 55, max: 140, required: true,
+    min: 21.5, max: 55, required: true,
   },
   {
     key: "hips", label: "Hips", group: "circumference",
     instruction: "Measure around the fullest part of the hips and buttocks, usually 7–9 inches below the waist.",
     pidgin: "Go down about 7–9 inches below the waist, then wrap tape around the fullest part of the yansh.",
     diagram: "── tape goes all the way around ──\n   [ fullest part of hips/yansh ]",
-    min: 70, max: 160, required: true,
+    min: 27.5, max: 63, required: true,
   },
   {
     key: "chest", label: "Chest (Under Arms)", group: "circumference",
     instruction: "Measure around the chest just under the armpits, keeping tape parallel to the floor.",
     pidgin: "Wrap tape under the armpit, across the chest. Make the tape flat and level.",
     diagram: "── tape just below armpit ──\n        [ across chest ]",
-    min: 65, max: 145, required: false,
+    min: 25.5, max: 57, required: false,
   },
   {
     key: "neck", label: "Neck", group: "circumference",
     instruction: "Measure around the base of the neck where the collar usually sits.",
     pidgin: "Wrap tape around the bottom of the neck, where shirt collar dey sit.",
     diagram: "── tape around base of neck ──",
-    min: 28, max: 55, required: false,
+    min: 11, max: 21.5, required: false,
   },
   // Lengths
   {
@@ -84,56 +82,56 @@ const STEPS: MeasurementStep[] = [
     instruction: "Measure from the prominent bone at the back of the neck straight down to the natural waist.",
     pidgin: "From the bone at the back of the neck, measure straight down to the waist.",
     diagram: "  [ back of neck bone ]\n         |\n         | (straight down)\n         |\n     [ waist line ]",
-    min: 30, max: 55, required: true,
+    min: 12, max: 21.5, required: true,
   },
   {
     key: "frontLength", label: "Front Length", group: "length",
     instruction: "Measure from the shoulder/collarbone to the natural waist at the front.",
     pidgin: "From the shoulder (front), measure down to the waist at the front.",
     diagram: "  [ shoulder point ]\n         |\n         | (straight down)\n         |\n     [ waist line ]",
-    min: 28, max: 52, required: false,
+    min: 11, max: 20.5, required: false,
   },
   {
     key: "armLength", label: "Arm Length", group: "length",
     instruction: "Measure from the shoulder point, over the bent elbow, down to the wrist bone.",
     pidgin: "Bend the arm small. Measure from shoulder point, over elbow, to wrist bone.",
     diagram: "  [ shoulder ]\n      |\n      | (over elbow)\n      |\n  [ wrist bone ]",
-    min: 45, max: 75, required: false,
+    min: 17.5, max: 29.5, required: false,
   },
   {
     key: "sleeveLength", label: "Sleeve Length", group: "length",
     instruction: "Measure from the shoulder seam down the arm to the wrist.",
     pidgin: "From shoulder seam, straight down the arm to the wrist.",
     diagram: "  [ shoulder seam ]\n        |\n        |\n    [ wrist ]",
-    min: 42, max: 72, required: false,
+    min: 16.5, max: 28.5, required: false,
   },
   {
     key: "shoulder", label: "Shoulder Width", group: "point-to-point",
     instruction: "Measure straight across the back from one shoulder point to the other.",
     pidgin: "Measure across the back from one shoulder edge to the other. Straight line.",
     diagram: "[ shoulder ] ──── across back ──── [ shoulder ]",
-    min: 32, max: 58, required: true,
+    min: 12.5, max: 23, required: true,
   },
   {
     key: "inseam", label: "Inseam", group: "length",
     instruction: "Measure from the crotch seam down the inside of the leg to the ankle.",
     pidgin: "From the join between the legs, measure down the inside of the leg to the ankle.",
     diagram: "  [ crotch ]\n      |\n      | (inside leg)\n      |\n  [ ankle ]",
-    min: 55, max: 90, required: false,
+    min: 21.5, max: 35.5, required: false,
   },
   {
     key: "thigh", label: "Thigh", group: "circumference",
     instruction: "Measure around the fullest part of the upper thigh.",
     pidgin: "Wrap tape around the biggest part of the upper leg.",
     diagram: "── tape around upper thigh ──\n   [ fullest part ]",
-    min: 40, max: 90, required: false,
+    min: 15.5, max: 35.5, required: false,
   },
   {
     key: "blouseLength", label: "Blouse Length", group: "length",
     instruction: "Measure from the back of the neck/nape down to where the blouse should end (usually below the hip).",
     pidgin: "From the back of the neck, measure down to where you want the blouse to end.",
     diagram: "  [ nape of neck ]\n        |\n        |\n  [ blouse hem ]",
-    min: 45, max: 90, required: false,
+    min: 17.5, max: 35.5, required: false,
   },
 ];
 
@@ -152,7 +150,7 @@ interface GuidedTapeMeasureProps {
 /* -------------------------------------------------------------------------- */
 
 export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: GuidedTapeMeasureProps) {
-  const { unit, toggle } = useUnitPreference();
+  void gender;
   const [stepIndex,    setStepIndex]    = useState(0);
   const [values,       setValues]       = useState<Record<string, string>>({});
   const [savedValues,  setSavedValues]  = useState<Record<string, number>>({});
@@ -164,9 +162,9 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
   const totalSteps  = STEPS.length;
   const progress    = Math.round((Object.keys(savedValues).length / STEPS.filter((s) => s.required).length) * 100);
 
-  function validateValue(cm: number, step: MeasurementStep): string | null {
-    if (cm < step.min) return `This seems too small for ${step.label}. Min is about ${cmToDisplayInches(step.min)}" (${step.min} cm).`;
-    if (cm > step.max) return `This seems too large for ${step.label}. Max is about ${cmToDisplayInches(step.max)}" (${step.max} cm).`;
+  function validateValue(value: number, step: MeasurementStep): string | null {
+    if (value < step.min) return `This seems too small for ${step.label}. Min is about ${step.min}".`;
+    if (value > step.max) return `This seems too large for ${step.label}. Max is about ${step.max}".`;
     return null;
   }
 
@@ -179,7 +177,7 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
     }
 
     if (raw) {
-      const cm = parseMeasurementInput(raw, unit);
+      const cm = parseMeasurementInput(raw);
       if (cm === null || cm <= 0) {
         setInputError("Please enter a valid number.");
         return;
@@ -220,7 +218,7 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
 
   function handleConfirmWarning() {
     const raw = values[currentStep.key] || "";
-    const cm  = parseMeasurementInput(raw, unit);
+    const cm  = parseMeasurementInput(raw);
     if (cm !== null && cm > 0) {
       setSavedValues((prev) => ({ ...prev, [currentStep.key]: cm }));
     }
@@ -240,7 +238,7 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
   if (showSummary) {
     const entries = STEPS.filter((s) => savedValues[s.key]).map((s) => ({
       label: s.label,
-      cm:    savedValues[s.key],
+      value: savedValues[s.key],
     }));
 
     return (
@@ -251,19 +249,12 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
           <p className="text-sm text-[#1A1A2E]/50">{entries.length} measurements recorded</p>
         </div>
 
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-[#1A1A2E]/40">Review your measurements</p>
-          <UnitToggle unit={unit} onToggle={toggle} size="sm" />
-        </div>
-
         <div className="max-h-64 overflow-y-auto rounded-xl border border-[#1A1A2E]/8 bg-white/40">
-          {entries.map(({ label, cm }) => (
+          {entries.map(({ label, value }) => (
             <div key={label} className="flex items-center justify-between border-b border-[#1A1A2E]/5 px-3 py-2 last:border-0">
               <span className="text-sm text-[#1A1A2E]/70">{label}</span>
               <span className="font-mono text-sm font-semibold text-[#1A1A2E]">
-                {unit === "in"
-                  ? `${cmToDisplayInches(cm)}"`
-                  : `${cm.toFixed(1)} cm`}
+                {cmToDisplayInches(value)}"
               </span>
             </div>
           ))}
@@ -293,7 +284,7 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
             Step {stepIndex + 1} of {totalSteps}
           </span>
         </div>
-        <UnitToggle unit={unit} onToggle={toggle} size="sm" />
+        <span className="text-xs font-medium text-[#1A1A2E]/40">inches</span>
       </div>
 
       {/* Progress bar */}
@@ -334,14 +325,14 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
           {/* Input */}
           <div className="mt-4">
             <label className="mb-1.5 block text-xs font-semibold text-[#1A1A2E]/60">
-              Enter {currentStep.label} in {unit === "in" ? "inches" : "centimetres"}
+              Enter {currentStep.label} in inches
             </label>
             <div className="relative">
               <input
                 type="number"
-                step={unit === "in" ? "0.5" : "0.1"}
+                step="0.25"
                 inputMode="decimal"
-                placeholder={unit === "in" ? "e.g. 38" : "e.g. 96.5"}
+                placeholder="e.g. 38"
                 value={values[currentStep.key] || ""}
                 onChange={(e) => {
                   setValues((prev) => ({ ...prev, [currentStep.key]: e.target.value }));
@@ -352,16 +343,14 @@ export function GuidedTapeMeasure({ gender = "female", onComplete, onCancel }: G
                 autoFocus
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#1A1A2E]/40">
-                {unit}
+                in
               </span>
             </div>
 
             {/* Saved value reference */}
             {savedValues[currentStep.key] && (
               <p className="mt-1 text-xs text-emerald-600">
-                ✓ Previously saved: {unit === "in"
-                  ? `${cmToDisplayInches(savedValues[currentStep.key])}"`
-                  : `${savedValues[currentStep.key].toFixed(1)} cm`}
+                ✓ Previously saved: {cmToDisplayInches(savedValues[currentStep.key])}"
               </p>
             )}
 

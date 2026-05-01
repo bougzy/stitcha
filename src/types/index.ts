@@ -145,6 +145,12 @@ export interface Order {
   isDeleted?: boolean;
   deletedAt?: string;
   receiptSent?: boolean;
+  /** Designer has featured this delivered order on the public discovery feed. */
+  featuredInFeed?: boolean;
+  feedCaption?: string;
+  featuredAt?: string;
+  /** Public like count from the discovery feed. */
+  feedLikes?: number;
   createdAt: string;
   updatedAt: string;
 }

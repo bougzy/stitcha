@@ -47,6 +47,7 @@ import {
 import { MeasurementForm } from "@/components/clients/measurement-form";
 import { GuidedTapeMeasure } from "@/components/clients/guided-tape-measure";
 import { MeasurementDisplay } from "@/components/clients/measurement-display";
+import { ReScanFromPhotos } from "@/components/scan/rescan-from-photos";
 import { ClientInsights } from "@/components/clients/client-insights";
 import { EaseCalculator } from "@/components/common/ease-calculator";
 import { FabricCalculator } from "@/components/common/fabric-calculator";
@@ -98,7 +99,7 @@ export default function ClientDetailPage() {
   const [measurementHistory, setMeasurementHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [measurementDialogOpen, setMeasurementDialogOpen] = useState(false);
-  const [measurementMode, setMeasurementMode] = useState<"guided" | "form">("guided");
+  const [measurementMode, setMeasurementMode] = useState<"guided" | "form" | "rescan">("guided");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [savingMeasurements, setSavingMeasurements] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -991,29 +992,41 @@ export default function ClientDetailPage() {
               <div className="flex gap-1 rounded-lg border border-[#1A1A2E]/8 bg-[#1A1A2E]/4 p-1 mt-2">
                 <button
                   onClick={() => setMeasurementMode("guided")}
-                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
+                  className={`flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
                     measurementMode === "guided"
                       ? "bg-white text-[#1A1A2E] shadow-sm"
                       : "text-[#1A1A2E]/50 hover:text-[#1A1A2E]"
                   }`}
                 >
-                  📏 Guided Tape Measure
+                  📏 Guided
                 </button>
                 <button
                   onClick={() => setMeasurementMode("form")}
-                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
+                  className={`flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
                     measurementMode === "form"
                       ? "bg-white text-[#1A1A2E] shadow-sm"
                       : "text-[#1A1A2E]/50 hover:text-[#1A1A2E]"
                   }`}
                 >
-                  📝 Enter All at Once
+                  📝 Form
+                </button>
+                <button
+                  onClick={() => setMeasurementMode("rescan")}
+                  className={`flex-1 rounded-md py-1.5 text-[11px] font-medium transition-colors ${
+                    measurementMode === "rescan"
+                      ? "bg-white text-[#1A1A2E] shadow-sm"
+                      : "text-[#1A1A2E]/50 hover:text-[#1A1A2E]"
+                  }`}
+                >
+                  📷 Re-scan from photos
                 </button>
               </div>
               <p className="text-xs text-[#1A1A2E]/40 mt-1">
                 {measurementMode === "guided"
                   ? "Step-by-step guide — works on any phone, any location."
-                  : "Enter all measurements at once — good for experienced tailors."}
+                  : measurementMode === "form"
+                  ? "Enter all measurements at once — good for experienced tailors."
+                  : "Drop in a front + side photo and re-run the new AI pipeline. No client link needed."}
               </p>
             </DialogHeader>
 
@@ -1027,7 +1040,7 @@ export default function ClientDetailPage() {
                   }}
                   onCancel={() => setMeasurementDialogOpen(false)}
                 />
-              ) : (
+              ) : measurementMode === "form" ? (
                 <MeasurementForm
                   initialData={measurements || undefined}
                   previousData={
@@ -1039,6 +1052,34 @@ export default function ClientDetailPage() {
                   onSubmit={handleSaveMeasurements}
                   loading={savingMeasurements}
                 />
+              ) : (
+                (() => {
+                  const heightInches = (measurements?.height as number | undefined) ?? 65; // ~165 cm fallback
+                  const heightCmForScan = heightInches * 2.54;
+                  return (
+                    <ReScanFromPhotos
+                      heightCm={heightCmForScan}
+                      gender={(client.gender as BodyGender) || "female"}
+                      onSave={async (payload) => {
+                        // Persist using the existing measurements endpoint, marking the source as ai_scan
+                        // so the review banner appears for the designer to confirm.
+                        const data = {
+                          ...payload.measurements,
+                          source: "ai_scan" as const,
+                          confidence: payload.confidence,
+                          confidenceScores: payload.confidenceScores,
+                          aiEstimatedFields: payload.aiEstimatedFields,
+                          scaleSource: payload.scaleSource,
+                          reviewedByDesigner: false,
+                        };
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        await handleSaveMeasurements(data as any);
+                        setMeasurementDialogOpen(false);
+                      }}
+                      onCancel={() => setMeasurementDialogOpen(false)}
+                    />
+                  );
+                })()
               )}
             </div>
           </DialogContent>

@@ -11,33 +11,33 @@ export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://stitcha.verce
 
 export const MEASUREMENT_TYPES = [
   // Circumference
-  { key: "bust",             label: "Bust",                   unit: "cm", group: "circumference" },
-  { key: "underBust",        label: "Under Bust",             unit: "cm", group: "circumference", aiEstimated: true },
-  { key: "waist",            label: "Waist",                  unit: "cm", group: "circumference" },
-  { key: "hips",             label: "Hips",                   unit: "cm", group: "circumference" },
-  { key: "chest",            label: "Chest",                  unit: "cm", group: "circumference" },
-  { key: "neck",             label: "Neck",                   unit: "cm", group: "circumference" },
-  { key: "thigh",            label: "Thigh",                  unit: "cm", group: "circumference" },
-  { key: "knee",             label: "Knee",                   unit: "cm", group: "circumference" },
-  { key: "calf",             label: "Calf",                   unit: "cm", group: "circumference" },
-  { key: "wrist",            label: "Wrist",                  unit: "cm", group: "circumference" },
-  { key: "ankle",            label: "Ankle",                  unit: "cm", group: "circumference" },
-  { key: "roundArm",         label: "Round Arm",              unit: "cm", group: "circumference", aiEstimated: true },
+  { key: "bust",             label: "Bust",                   unit: "in", group: "circumference" },
+  { key: "underBust",        label: "Under Bust",             unit: "in", group: "circumference", aiEstimated: true },
+  { key: "waist",            label: "Waist",                  unit: "in", group: "circumference" },
+  { key: "hips",             label: "Hips",                   unit: "in", group: "circumference" },
+  { key: "chest",            label: "Chest",                  unit: "in", group: "circumference" },
+  { key: "neck",             label: "Neck",                   unit: "in", group: "circumference" },
+  { key: "thigh",            label: "Thigh",                  unit: "in", group: "circumference" },
+  { key: "knee",             label: "Knee",                   unit: "in", group: "circumference" },
+  { key: "calf",             label: "Calf",                   unit: "in", group: "circumference" },
+  { key: "wrist",            label: "Wrist",                  unit: "in", group: "circumference" },
+  { key: "ankle",            label: "Ankle",                  unit: "in", group: "circumference" },
+  { key: "roundArm",         label: "Round Arm",              unit: "in", group: "circumference", aiEstimated: true },
   // Lengths
-  { key: "backLength",       label: "Back Length",            unit: "cm", group: "length" },
-  { key: "frontLength",      label: "Front Length",           unit: "cm", group: "length" },
-  { key: "blouseLength",     label: "Blouse Length",          unit: "cm", group: "length", aiEstimated: true },
-  { key: "fullLength",       label: "Full Length",            unit: "cm", group: "length" },
-  { key: "halfLength",       label: "Half Length",            unit: "cm", group: "length", aiEstimated: true },
-  { key: "armLength",        label: "Arm Length",             unit: "cm", group: "length" },
-  { key: "sleeveLength",     label: "Full Sleeve Length",     unit: "cm", group: "length" },
-  { key: "halfSleeve",       label: "Half Sleeve Length",     unit: "cm", group: "length" },
-  { key: "inseam",           label: "Inseam",                 unit: "cm", group: "length" },
-  { key: "crotchLength",     label: "Crotch Length",          unit: "cm", group: "length", aiEstimated: true },
+  { key: "backLength",       label: "Back Length",            unit: "in", group: "length" },
+  { key: "frontLength",      label: "Front Length",           unit: "in", group: "length" },
+  { key: "blouseLength",     label: "Blouse Length",          unit: "in", group: "length", aiEstimated: true },
+  { key: "fullLength",       label: "Full Length",            unit: "in", group: "length" },
+  { key: "halfLength",       label: "Half Length",            unit: "in", group: "length", aiEstimated: true },
+  { key: "armLength",        label: "Arm Length",             unit: "in", group: "length" },
+  { key: "sleeveLength",     label: "Full Sleeve Length",     unit: "in", group: "length" },
+  { key: "halfSleeve",       label: "Half Sleeve Length",     unit: "in", group: "length" },
+  { key: "inseam",           label: "Inseam",                 unit: "in", group: "length" },
+  { key: "crotchLength",     label: "Crotch Length",          unit: "in", group: "length", aiEstimated: true },
   // Point-to-point
-  { key: "shoulder",         label: "Shoulder Width",         unit: "cm", group: "point-to-point" },
-  { key: "shoulderToBust",   label: "Shoulder to Bust Point", unit: "cm", group: "point-to-point", aiEstimated: true },
-  { key: "shoulderToHip",    label: "Shoulder to Hip Line",   unit: "cm", group: "point-to-point", aiEstimated: true },
+  { key: "shoulder",         label: "Shoulder Width",         unit: "in", group: "point-to-point" },
+  { key: "shoulderToBust",   label: "Shoulder to Bust Point", unit: "in", group: "point-to-point", aiEstimated: true },
+  { key: "shoulderToHip",    label: "Shoulder to Hip Line",   unit: "in", group: "point-to-point", aiEstimated: true },
 ] as const;
 
 export type MeasurementKey = (typeof MEASUREMENT_TYPES)[number]["key"];
@@ -107,32 +107,34 @@ export const GARMENT_PRESETS: Record<string, { label: string; icon: string; fiel
 } as const;
 
 /* -------------------------------------------------------------------------- */
-/*  Standard size charts (West African / International)                        */
+/*  Standard size charts (West African / International) — INCHES               */
+/*  Ranges aligned to common Nigerian tailoring half-inch increments.          */
 /* -------------------------------------------------------------------------- */
 
 export interface SizeChartEntry {
   label: string;
+  /** [min, max] inches */
   bust: [number, number];
   waist: [number, number];
   hips: [number, number];
 }
 
 export const SIZE_CHART_FEMALE: SizeChartEntry[] = [
-  { label: "XS (6)",  bust: [76, 82],   waist: [58, 64],  hips: [84, 89] },
-  { label: "S (8)",   bust: [82, 88],   waist: [64, 70],  hips: [89, 94] },
-  { label: "M (10)",  bust: [88, 94],   waist: [70, 76],  hips: [94, 100] },
-  { label: "L (12)",  bust: [94, 100],  waist: [76, 82],  hips: [100, 106] },
-  { label: "XL (14)", bust: [100, 108], waist: [82, 90],  hips: [106, 113] },
-  { label: "XXL (16)", bust: [108, 116], waist: [90, 98],  hips: [113, 120] },
+  { label: "XS (6)",   bust: [30,   32.5], waist: [23,   25],   hips: [33,   35] },
+  { label: "S (8)",    bust: [32.5, 34.5], waist: [25,   27.5], hips: [35,   37] },
+  { label: "M (10)",   bust: [34.5, 37],   waist: [27.5, 30],   hips: [37,   39.5] },
+  { label: "L (12)",   bust: [37,   39.5], waist: [30,   32.5], hips: [39.5, 42] },
+  { label: "XL (14)",  bust: [39.5, 42.5], waist: [32.5, 35.5], hips: [42,   44.5] },
+  { label: "XXL (16)", bust: [42.5, 45.5], waist: [35.5, 38.5], hips: [44.5, 47] },
 ];
 
 export const SIZE_CHART_MALE: SizeChartEntry[] = [
-  { label: "XS (36)", bust: [86, 91],   waist: [71, 76],  hips: [86, 91] },
-  { label: "S (38)",  bust: [91, 97],   waist: [76, 81],  hips: [91, 97] },
-  { label: "M (40)",  bust: [97, 102],  waist: [81, 86],  hips: [97, 102] },
-  { label: "L (42)",  bust: [102, 107], waist: [86, 91],  hips: [102, 107] },
-  { label: "XL (44)", bust: [107, 117], waist: [91, 102], hips: [107, 117] },
-  { label: "XXL (46)", bust: [117, 127], waist: [102, 112], hips: [117, 127] },
+  { label: "XS (36)",  bust: [34,   36],   waist: [28,   30],   hips: [34,   36] },
+  { label: "S (38)",   bust: [36,   38],   waist: [30,   32],   hips: [36,   38] },
+  { label: "M (40)",   bust: [38,   40],   waist: [32,   34],   hips: [38,   40] },
+  { label: "L (42)",   bust: [40,   42],   waist: [34,   36],   hips: [40,   42] },
+  { label: "XL (44)",  bust: [42,   46],   waist: [36,   40],   hips: [42,   46] },
+  { label: "XXL (46)", bust: [46,   50],   waist: [40,   44],   hips: [46,   50] },
 ];
 
 export const ORDER_STATUSES = [

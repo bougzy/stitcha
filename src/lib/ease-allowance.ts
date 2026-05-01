@@ -23,45 +23,45 @@ interface EaseValues {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Ease tables (in cm) per garment type and fit                              */
-/*  These are standard wearing + design ease values used by pattern makers    */
+/*  Ease tables (in INCHES) per garment type and fit.                          */
+/*  Values rounded to common 1/4" tailoring increments.                        */
 /* -------------------------------------------------------------------------- */
 
 const EASE_TABLES: Record<string, Record<FitType, EaseValues>> = {
   top: {
-    fitted: { bust: 5, chest: 5, waist: 3, shoulder: 0.5, wrist: 1.5, armLength: 1 },
-    standard: { bust: 8, chest: 8, waist: 5, shoulder: 1, wrist: 2, armLength: 1.5 },
-    loose: { bust: 13, chest: 13, waist: 8, shoulder: 1.5, wrist: 3, armLength: 2 },
+    fitted:   { bust: 2,    chest: 2,    waist: 1.25, shoulder: 0.25, wrist: 0.5, armLength: 0.5 },
+    standard: { bust: 3,    chest: 3,    waist: 2,    shoulder: 0.5,  wrist: 0.75, armLength: 0.5 },
+    loose:    { bust: 5,    chest: 5,    waist: 3,    shoulder: 0.75, wrist: 1.25, armLength: 0.75 },
   },
   dress: {
-    fitted: { bust: 5, chest: 5, waist: 2.5, hips: 5, shoulder: 0.5, wrist: 1.5 },
-    standard: { bust: 8, chest: 8, waist: 5, hips: 8, shoulder: 1, wrist: 2 },
-    loose: { bust: 13, chest: 13, waist: 10, hips: 13, shoulder: 1.5, wrist: 3 },
+    fitted:   { bust: 2,    chest: 2,    waist: 1,    hips: 2,    shoulder: 0.25, wrist: 0.5 },
+    standard: { bust: 3,    chest: 3,    waist: 2,    hips: 3,    shoulder: 0.5,  wrist: 0.75 },
+    loose:    { bust: 5,    chest: 5,    waist: 4,    hips: 5,    shoulder: 0.75, wrist: 1.25 },
   },
   trousers: {
-    fitted: { waist: 2, hips: 4, thigh: 4, knee: 4, calf: 3, ankle: 2, inseam: 1 },
-    standard: { waist: 3, hips: 6, thigh: 6, knee: 6, calf: 5, ankle: 3, inseam: 1.5 },
-    loose: { waist: 5, hips: 10, thigh: 10, knee: 10, calf: 8, ankle: 5, inseam: 2 },
+    fitted:   { waist: 0.75, hips: 1.5, thigh: 1.5, knee: 1.5, calf: 1.25, ankle: 0.75, inseam: 0.5 },
+    standard: { waist: 1.25, hips: 2.5, thigh: 2.5, knee: 2.5, calf: 2,    ankle: 1.25, inseam: 0.5 },
+    loose:    { waist: 2,    hips: 4,   thigh: 4,   knee: 4,   calf: 3,    ankle: 2,    inseam: 0.75 },
   },
   skirt: {
-    fitted: { waist: 2, hips: 4 },
-    standard: { waist: 3, hips: 6 },
-    loose: { waist: 5, hips: 10 },
+    fitted:   { waist: 0.75, hips: 1.5 },
+    standard: { waist: 1.25, hips: 2.5 },
+    loose:    { waist: 2,    hips: 4 },
   },
   agbada: {
-    fitted: { bust: 10, chest: 10, shoulder: 2, neck: 2 },
-    standard: { bust: 18, chest: 18, shoulder: 4, neck: 3 },
-    loose: { bust: 25, chest: 25, shoulder: 6, neck: 4 },
+    fitted:   { bust: 4,    chest: 4,    shoulder: 0.75, neck: 0.75 },
+    standard: { bust: 7,    chest: 7,    shoulder: 1.5,  neck: 1.25 },
+    loose:    { bust: 10,   chest: 10,   shoulder: 2.5,  neck: 1.5 },
   },
   suit: {
-    fitted: { bust: 8, chest: 8, waist: 5, shoulder: 1, wrist: 2 },
-    standard: { bust: 10, chest: 10, waist: 6, shoulder: 1.5, wrist: 2.5 },
-    loose: { bust: 14, chest: 14, waist: 8, shoulder: 2, wrist: 3 },
+    fitted:   { bust: 3,    chest: 3,    waist: 2,    shoulder: 0.5,  wrist: 0.75 },
+    standard: { bust: 4,    chest: 4,    waist: 2.5,  shoulder: 0.5,  wrist: 1 },
+    loose:    { bust: 5.5,  chest: 5.5,  waist: 3,    shoulder: 0.75, wrist: 1.25 },
   },
   jumpsuit: {
-    fitted: { bust: 5, chest: 5, waist: 3, hips: 5, thigh: 4, ankle: 2, inseam: 1 },
-    standard: { bust: 8, chest: 8, waist: 5, hips: 8, thigh: 6, ankle: 3, inseam: 1.5 },
-    loose: { bust: 13, chest: 13, waist: 8, hips: 13, thigh: 10, ankle: 5, inseam: 2 },
+    fitted:   { bust: 2,    chest: 2,    waist: 1.25, hips: 2,    thigh: 1.5, ankle: 0.75, inseam: 0.5 },
+    standard: { bust: 3,    chest: 3,    waist: 2,    hips: 3,    thigh: 2.5, ankle: 1.25, inseam: 0.5 },
+    loose:    { bust: 5,    chest: 5,    waist: 3,    hips: 5,    thigh: 4,   ankle: 2,    inseam: 0.75 },
   },
 };
 
@@ -152,7 +152,8 @@ export function calculateEase(
       results[mk] = {
         body: bodyVal,
         ease: easeVal,
-        cutting: Math.round((bodyVal + easeVal) * 10) / 10,
+        // Round to nearest 1/8" — practical tailoring resolution
+        cutting: Math.round((bodyVal + easeVal) * 8) / 8,
       };
     }
   }

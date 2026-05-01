@@ -11,6 +11,7 @@ import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { loginSchema, type LoginInput } from "@/lib/validations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { triggerInstallPrompt } from "@/components/common/install-prompt";
 
 function LoginForm() {
   const router = useRouter();
@@ -51,6 +52,8 @@ function LoginForm() {
       }
 
       toast.success("Welcome back to Stitcha!");
+      // Nudge install once the user has signed in.
+      setTimeout(() => triggerInstallPrompt(), 1500);
       router.push(callbackUrl);
       router.refresh();
     } catch {

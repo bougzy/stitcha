@@ -134,7 +134,7 @@ export const whatsapp = {
   ): string {
     const lines = MEASUREMENT_TYPES.filter(
       (m) => measurements[m.key] != null
-    ).map((m) => `  ${m.label}: *${measurements[m.key]}cm*`);
+    ).map((m) => `  ${m.label}: *${measurements[m.key]}"*`);
 
     const portal = portalUrl ? `\n\nView your measurements anytime:\n${portalUrl}` : "";
 

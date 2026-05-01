@@ -1,11 +1,22 @@
 "use client";
 
 /* -------------------------------------------------------------------------- */
-/*  AI Body Measurement Module                                                 */
-/*  Uses MediaPipe PoseLandmarker for real body landmark detection             */
-/*  Calibrated for African & Nigerian body types                               */
-/*  Runs entirely in the browser — photos never leave the device              */
+/*  AI Body Measurement Module — Tier-1                                        */
+/*                                                                              */
+/*  Pipeline:                                                                   */
+/*   1. Pose-quality gate     → block capture until pose is good               */
+/*   2. Multi-frame capture   → median of N frames (noise ÷ √N)                */
+/*   3. Reference-card scale  → ID-card detection beats self-reported height   */
+/*   4. Segmentation widths   → measure body silhouette, not joint distance    */
+/*   5. Anatomical validation → cross-check + nudge inconsistent values        */
+/*   6. Inches output         → Nigerian tailoring is inch-native              */
+/*   7. Tape recalibration    → one tape value rescales the whole scan         */
+/*                                                                              */
+/*  All photos stay on-device. Math runs internally in cm (because height,     */
+/*  the calibration anchor, is given in cm) and outputs inches.                */
 /* -------------------------------------------------------------------------- */
+
+import { cmToIn, inToCm, roundEighth } from "./units";
 
 /* ---- Landmark indices (MediaPipe Pose 33-point model) ---- */
 const L = {
@@ -37,36 +48,37 @@ const L = {
 } as const;
 
 /* ---- Types ---- */
-interface Landmark {
-  x: number; // normalized 0-1
+export interface Landmark {
+  x: number;
   y: number;
   z: number;
   visibility?: number;
 }
 
 export interface MeasurementResult {
+  /** All values are inches, rounded to 1/8". */
   measurements: Record<string, number>;
   confidence: number;
   landmarkQuality: number;
-  /** Per-measurement confidence scores 0–1 */
   confidenceScores: Record<string, number>;
-  /** Keys that are AI-estimated (not directly measured from landmarks) */
   aiEstimatedFields: string[];
+  /** "card" | "height" — which scale source was used */
+  scaleSource?: "card" | "height";
 }
 
 export type BodyGender = "male" | "female";
 
+/** A captured frame: landmarks + optional segmentation mask + image dims. */
+export interface CapturedFrame {
+  landmarks: Landmark[];
+  /** Pixel-aligned binary segmentation mask (1 = body, 0 = background). */
+  segmentationMask?: Uint8Array | null;
+  width: number;
+  height: number;
+}
+
 /* -------------------------------------------------------------------------- */
-/*  African Body Type Calibration Constants                                     */
-/*  Based on anthropometric studies of West African / Nigerian populations      */
-/*  Sources: ISO 8559, WEAR studies, West African tailoring conventions         */
-/*                                                                              */
-/*  Key differences vs generic/Western models:                                  */
-/*  - Women: Fuller bust and hips relative to waist (more pronounced curves)   */
-/*  - Women: Slightly wider hips relative to shoulders                          */
-/*  - Men: Broader shoulders, fuller chest, slightly shorter torso ratio        */
-/*  - Both: Slightly longer limb proportions relative to torso                  */
-/*  - Both: Different waist-to-hip ratios than Western averages                 */
+/*  African body-type calibration                                              */
 /* -------------------------------------------------------------------------- */
 
 interface BodyRatioSet {
@@ -142,200 +154,308 @@ const BASE_RATIOS: Record<BodyGender, BodyRatioSet> = {
   },
 };
 
-/* -------------------------------------------------------------------------- */
-/*  Dynamic Body Shape Detection & Ratio Adjustment                            */
-/*  Adapts multipliers based on actual observed proportions instead of          */
-/*  assuming every person matches the population average                        */
-/* -------------------------------------------------------------------------- */
-
 function computeDynamicRatios(
   front: Landmark[],
   gender: BodyGender,
   frontW: number,
-  frontH: number
+  frontH: number,
 ): BodyRatioSet {
   const base: BodyRatioSet = { ...BASE_RATIOS[gender] };
 
   const shoulderPx = dist2D(front[L.LEFT_SHOULDER], front[L.RIGHT_SHOULDER], frontW, frontH);
   const hipPx = dist2D(front[L.LEFT_HIP], front[L.RIGHT_HIP], frontW, frontH);
-
   if (shoulderPx <= 0 || hipPx <= 0) return base;
 
-  const shoulderToHipRatio = shoulderPx / hipPx;
+  const ratio = shoulderPx / hipPx;
 
   if (gender === "female") {
-    // Pear shape: wider hips relative to shoulders
-    if (shoulderToHipRatio < 0.95) {
-      const intensity = Math.min(0.15, (0.95 - shoulderToHipRatio) * 1.0);
-      base.hipsFromHipWidth += intensity;
-      base.hipHalfWidthRatio += intensity * 0.2;
-      base.hipDepthFactor += intensity * 0.4;
-      base.bustFromShoulder -= intensity * 0.3;
-      base.thighWidthFromHip += intensity * 0.15;
+    if (ratio < 0.95) {
+      const k = Math.min(0.15, (0.95 - ratio) * 1.0);
+      base.hipsFromHipWidth += k;
+      base.hipHalfWidthRatio += k * 0.2;
+      base.hipDepthFactor += k * 0.4;
+      base.bustFromShoulder -= k * 0.3;
+      base.thighWidthFromHip += k * 0.15;
     }
-    // Inverted triangle: wide shoulders, narrower hips
-    if (shoulderToHipRatio > 1.10) {
-      const intensity = Math.min(0.12, (shoulderToHipRatio - 1.10) * 0.8);
-      base.bustFromShoulder += intensity;
-      base.chestFromShoulder += intensity;
-      base.hipsFromHipWidth -= intensity;
-      base.hipHalfWidthRatio -= intensity * 0.15;
+    if (ratio > 1.10) {
+      const k = Math.min(0.12, (ratio - 1.10) * 0.8);
+      base.bustFromShoulder += k;
+      base.chestFromShoulder += k;
+      base.hipsFromHipWidth -= k;
+      base.hipHalfWidthRatio -= k * 0.15;
     }
-    // Hourglass: balanced shoulders and hips with defined waist
-    if (shoulderToHipRatio >= 0.95 && shoulderToHipRatio <= 1.05) {
+    if (ratio >= 0.95 && ratio <= 1.05) {
       base.bustFromShoulder += 0.05;
       base.hipsFromHipWidth += 0.05;
       base.waistFromHipWidth -= 0.05;
       base.waistHalfWidthRatio -= 0.02;
     }
   } else {
-    // Male: V-shape (broad shoulders) vs rectangular
-    if (shoulderToHipRatio > 1.15) {
-      const intensity = Math.min(0.10, (shoulderToHipRatio - 1.15) * 0.7);
-      base.bustFromShoulder += intensity;
-      base.chestFromShoulder += intensity;
-      base.waistFromHipWidth -= intensity * 0.5;
+    if (ratio > 1.15) {
+      const k = Math.min(0.10, (ratio - 1.15) * 0.7);
+      base.bustFromShoulder += k;
+      base.chestFromShoulder += k;
+      base.waistFromHipWidth -= k * 0.5;
     }
-    // Stocky build: shoulders close to hips
-    if (shoulderToHipRatio < 1.0) {
-      const intensity = Math.min(0.08, (1.0 - shoulderToHipRatio) * 0.6);
-      base.waistFromHipWidth += intensity;
-      base.hipsFromHipWidth += intensity;
-      base.thighWidthFromHip += intensity * 0.1;
+    if (ratio < 1.0) {
+      const k = Math.min(0.08, (1.0 - ratio) * 0.6);
+      base.waistFromHipWidth += k;
+      base.hipsFromHipWidth += k;
+      base.thighWidthFromHip += k * 0.1;
     }
   }
 
-  // Clamp all circumference multipliers to sane ranges
-  base.bustFromShoulder = Math.max(2.0, Math.min(3.2, base.bustFromShoulder));
-  base.chestFromShoulder = Math.max(2.0, Math.min(3.2, base.chestFromShoulder));
-  base.waistFromHipWidth = Math.max(2.0, Math.min(3.0, base.waistFromHipWidth));
-  base.hipsFromHipWidth = Math.max(2.0, Math.min(3.2, base.hipsFromHipWidth));
-
+  base.bustFromShoulder = clamp(base.bustFromShoulder, 2.0, 3.2);
+  base.chestFromShoulder = clamp(base.chestFromShoulder, 2.0, 3.2);
+  base.waistFromHipWidth = clamp(base.waistFromHipWidth, 2.0, 3.0);
+  base.hipsFromHipWidth = clamp(base.hipsFromHipWidth, 2.0, 3.2);
   return base;
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Side photo depth estimation                                                */
-/*  In a true side view, left/right landmarks collapse to the same point.      */
-/*  We measure the horizontal extent of the body silhouette instead.           */
+/*  Math helpers                                                                */
 /* -------------------------------------------------------------------------- */
 
-function estimateSideDepth(
-  side: Landmark[],
-  sideW: number,
-  sideScale: number,
-  level: "bust" | "waist" | "hip"
-): number {
-  let landmarks: Landmark[];
-
-  if (level === "bust") {
-    // Use shoulder, elbow, and nose for front-to-back chest depth
-    landmarks = [side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], side[L.NOSE], side[L.LEFT_ELBOW]];
-  } else if (level === "hip") {
-    landmarks = [side[L.LEFT_HIP], side[L.RIGHT_HIP], side[L.LEFT_KNEE]];
-  } else {
-    // Waist: use shoulder and hip midpoints
-    landmarks = [side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], side[L.LEFT_HIP], side[L.RIGHT_HIP]];
-  }
-
-  const validLandmarks = landmarks.filter(l => l && (l.visibility ?? 0) > 0.3);
-  if (validLandmarks.length < 2) return 0; // signal to use fallback
-
-  const xs = validLandmarks.map(l => l.x * sideW);
-  const depthPx = Math.max(...xs) - Math.min(...xs);
-  const depthCm = depthPx * sideScale;
-
-  // If depth is unreasonably small, the side photo may not be a true profile
-  return depthCm >= 12 ? depthCm : 0; // 0 signals fallback
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Cross-validation: nudge measurements that violate anatomical rules         */
-/* -------------------------------------------------------------------------- */
-
-function crossValidateAndNudge(
-  m: Record<string, number>,
-  gender: BodyGender
-): Record<string, number> {
-  const r = { ...m };
-
-  // Rule 1: Bust should be >= waist
-  if (r.bust < r.waist) {
-    const avg = (r.bust + r.waist) / 2;
-    r.bust = avg + 2;
-    r.waist = avg - 2;
-  }
-
-  // Rule 2: Hips >= waist for females (typically 5-15cm larger)
-  if (gender === "female" && r.hips < r.waist) {
-    r.hips = r.waist + 4;
-  }
-
-  // Rule 3: Thigh > knee > calf > ankle (taper rule)
-  if (r.thigh <= r.knee) {
-    const avg = (r.thigh + r.knee) / 2;
-    r.thigh = avg + 1;
-    r.knee = avg - 1;
-  }
-  if (r.knee <= r.calf) {
-    r.calf = r.knee - 2;
-  }
-  if (r.calf <= r.ankle) {
-    r.ankle = r.calf - 2;
-  }
-
-  // Rule 4: Chest within 5cm of bust
-  if (Math.abs(r.chest - r.bust) > 5) {
-    r.chest = r.bust - 1;
-  }
-
-  // Rule 5: Front length should be 88-100% of back length
-  const fbRatio = r.frontLength / r.backLength;
-  if (fbRatio > 1.0) {
-    r.frontLength = r.backLength * 0.95;
-  } else if (fbRatio < 0.85) {
-    r.frontLength = r.backLength * 0.92;
-  }
-
-  return r;
-}
-
-/* ---- Math helpers ---- */
 function dist2D(a: Landmark, b: Landmark, w: number, h: number): number {
   const dx = (a.x - b.x) * w;
   const dy = (a.y - b.y) * h;
   return Math.sqrt(dx * dx + dy * dy);
 }
-
-function midY(a: Landmark, b: Landmark): number {
-  return (a.y + b.y) / 2;
+function midY(a: Landmark, b: Landmark): number { return (a.y + b.y) / 2; }
+function midX(a: Landmark, b: Landmark): number { return (a.x + b.x) / 2; }
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
 }
-
-function midX(a: Landmark, b: Landmark): number {
-  return (a.x + b.x) / 2;
-}
-
-/** Ramanujan's approximation for ellipse circumference */
 function ellipseCirc(a: number, b: number): number {
   return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
 }
 
-function round1(v: number): number {
-  return Math.round(v * 10) / 10;
-}
-
-/** Clamp a value within a plausible range based on height */
-function clampMeasurement(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+/** Robust median of an array (mutates a copy). */
+function median(values: number[]): number {
+  if (values.length === 0) return NaN;
+  const sorted = [...values].sort((x, y) => x - y);
+  const m = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Plausibility ranges — sanity checks for measurements (in cm)               */
-/*  Prevents obviously wrong results from being returned                       */
+/*  Pose-quality gate                                                           */
+/*  Run on each live frame to decide whether to allow capture.                 */
 /* -------------------------------------------------------------------------- */
 
-export function getPlausibleRanges(heightCm: number, gender: BodyGender) {
-  const h = heightCm;
+export interface PoseQualityIssue {
+  code:
+    | "no_pose"
+    | "head_clipped"
+    | "feet_clipped"
+    | "phone_tilted"
+    | "subject_tilted"
+    | "arms_too_close"
+    | "low_visibility"
+    | "subject_too_close"
+    | "subject_too_far";
+  message: string;
+}
+
+export interface PoseQualityReport {
+  ok: boolean;
+  issues: PoseQualityIssue[];
+}
+
+export function evaluatePoseQuality(
+  landmarks: Landmark[] | null,
+  imageWidth: number,
+  imageHeight: number,
+  /** Optional device pitch in degrees (from DeviceOrientation). */
+  devicePitchDeg?: number,
+): PoseQualityReport {
+  const issues: PoseQualityIssue[] = [];
+  if (!landmarks || landmarks.length < 33) {
+    issues.push({ code: "no_pose", message: "Stand fully in the frame" });
+    return { ok: false, issues };
+  }
+
+  const head = landmarks[L.NOSE];
+  const lAnkle = landmarks[L.LEFT_ANKLE];
+  const rAnkle = landmarks[L.RIGHT_ANKLE];
+  const lSh = landmarks[L.LEFT_SHOULDER];
+  const rSh = landmarks[L.RIGHT_SHOULDER];
+  const lHip = landmarks[L.LEFT_HIP];
+  const rHip = landmarks[L.RIGHT_HIP];
+  const lWrist = landmarks[L.LEFT_WRIST];
+  const rWrist = landmarks[L.RIGHT_WRIST];
+
+  // Head not clipped at top
+  if (head.y < 0.04) issues.push({ code: "head_clipped", message: "Move back — your head is cut off" });
+  // Feet not clipped at bottom
+  if (Math.max(lAnkle.y, rAnkle.y) > 0.97)
+    issues.push({ code: "feet_clipped", message: "Move back — your feet are cut off" });
+
+  // Subject vertical: shoulder line within ±3°
+  const dySh = (lSh.y - rSh.y) * imageHeight;
+  const dxSh = (lSh.x - rSh.x) * imageWidth;
+  const shoulderTilt = Math.abs(Math.atan2(dySh, dxSh) * (180 / Math.PI));
+  if (shoulderTilt > 4 && shoulderTilt < 176)
+    issues.push({ code: "subject_tilted", message: "Stand straight, shoulders level" });
+
+  // Phone level
+  if (devicePitchDeg !== undefined && Math.abs(devicePitchDeg) > 8) {
+    issues.push({ code: "phone_tilted", message: "Hold the phone straight up" });
+  }
+
+  // Arms separated from torso (so silhouette can read body width at chest)
+  const torsoHalf = Math.abs(lSh.x - rSh.x) / 2;
+  const torsoCx = (lSh.x + rSh.x) / 2;
+  const lArmAway = Math.abs(lWrist.x - torsoCx) > torsoHalf * 1.25;
+  const rArmAway = Math.abs(rWrist.x - torsoCx) > torsoHalf * 1.25;
+  if (!(lArmAway && rArmAway))
+    issues.push({ code: "arms_too_close", message: "Hold arms slightly out from your body" });
+
+  // Visibility
+  const keyVis = [lSh, rSh, lHip, rHip, lAnkle, rAnkle].map(l => l.visibility ?? 0);
+  const avgVis = keyVis.reduce((a, b) => a + b, 0) / keyVis.length;
+  if (avgVis < 0.6) issues.push({ code: "low_visibility", message: "Stand where the camera can see your full body" });
+
+  // Subject coverage: shoulder-width as fraction of frame width
+  const shFrac = Math.abs(lSh.x - rSh.x);
+  if (shFrac > 0.42) issues.push({ code: "subject_too_close", message: "Move back from the camera" });
+  if (shFrac < 0.12) issues.push({ code: "subject_too_far", message: "Move closer to the camera" });
+
+  return { ok: issues.length === 0, issues };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Multi-frame median pose                                                     */
+/*  Combine N frames into one robust pose.                                     */
+/* -------------------------------------------------------------------------- */
+
+export function medianPose(frames: CapturedFrame[]): CapturedFrame | null {
+  if (frames.length === 0) return null;
+  if (frames.length === 1) return frames[0];
+
+  const ref = frames[0];
+  const N = ref.landmarks.length;
+  const merged: Landmark[] = [];
+
+  for (let i = 0; i < N; i++) {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const zs: number[] = [];
+    const vs: number[] = [];
+    for (const f of frames) {
+      const lm = f.landmarks[i];
+      if (!lm) continue;
+      const v = lm.visibility ?? 0;
+      // weight by visibility: drop frames where this landmark wasn't seen
+      if (v < 0.3) continue;
+      xs.push(lm.x);
+      ys.push(lm.y);
+      zs.push(lm.z);
+      vs.push(v);
+    }
+    if (xs.length === 0) {
+      merged.push(ref.landmarks[i]);
+    } else {
+      merged.push({
+        x: median(xs),
+        y: median(ys),
+        z: median(zs),
+        visibility: median(vs),
+      });
+    }
+  }
+
+  // Pick the segmentation mask with highest body-pixel count (most complete)
+  let bestMask: Uint8Array | null | undefined = null;
+  let bestCount = -1;
+  for (const f of frames) {
+    if (!f.segmentationMask) continue;
+    let c = 0;
+    for (let i = 0; i < f.segmentationMask.length; i++) c += f.segmentationMask[i] ? 1 : 0;
+    if (c > bestCount) { bestCount = c; bestMask = f.segmentationMask; }
+  }
+
+  return {
+    landmarks: merged,
+    segmentationMask: bestMask ?? null,
+    width: ref.width,
+    height: ref.height,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Segmentation-based body width at a Y row                                    */
+/*  Returns body width in PIXELS at the specified normalized Y (0..1).          */
+/*  Returns NaN if the row is empty or the mask is missing.                    */
+/* -------------------------------------------------------------------------- */
+
+export function widthAtY(
+  mask: Uint8Array | null | undefined,
+  width: number,
+  height: number,
+  yNorm: number,
+  /** Search a small vertical band around y to be robust. */
+  bandPx: number = 4,
+): number {
+  if (!mask) return NaN;
+  const y0 = clamp(Math.round(yNorm * height) - bandPx, 0, height - 1);
+  const y1 = clamp(Math.round(yNorm * height) + bandPx, 0, height - 1);
+
+  // Take the WIDEST run in the band (usually we want the arm-free chest line;
+  // if arms are out, the band's max width includes them — we mitigate this in
+  // the caller by selecting Y rows above/below the wrists).
+  let best = 0;
+  for (let y = y0; y <= y1; y++) {
+    let leftEdge = -1;
+    let rightEdge = -1;
+    const rowOff = y * width;
+    for (let x = 0; x < width; x++) {
+      if (mask[rowOff + x]) { leftEdge = x; break; }
+    }
+    if (leftEdge < 0) continue;
+    for (let x = width - 1; x >= 0; x--) {
+      if (mask[rowOff + x]) { rightEdge = x; break; }
+    }
+    const w = rightEdge - leftEdge;
+    if (w > best) best = w;
+  }
+  return best > 0 ? best : NaN;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reference-card scale calibration                                            */
+/*  An ISO/IEC 7810 ID-1 card is 85.60 × 53.98 mm (8.560 × 5.398 cm).           */
+/*  Caller supplies the card's bounding box in pixels (from a manual tap or    */
+/*  a contour detector). Returns cm-per-pixel.                                 */
+/* -------------------------------------------------------------------------- */
+
+export const ID_CARD_LONG_CM = 8.56;
+export const ID_CARD_SHORT_CM = 5.398;
+
+export interface CardBox {
+  /** Long side of the card in pixels (whichever dimension that is). */
+  longSidePx: number;
+  /** Short side in pixels (used for sanity check). */
+  shortSidePx: number;
+}
+
+export function scaleFromCard(box: CardBox): number | null {
+  if (!box || box.longSidePx <= 0 || box.shortSidePx <= 0) return null;
+  // Aspect ratio sanity: ID-1 long/short ≈ 1.586 — accept 1.4–1.8
+  const aspect = box.longSidePx / box.shortSidePx;
+  if (aspect < 1.4 || aspect > 1.8) return null;
+  // Average two scale estimates
+  const sLong = ID_CARD_LONG_CM / box.longSidePx;
+  const sShort = ID_CARD_SHORT_CM / box.shortSidePx;
+  return (sLong + sShort) / 2;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Plausibility ranges (IN INCHES)                                            */
+/* -------------------------------------------------------------------------- */
+
+export function getPlausibleRanges(heightIn: number, gender: BodyGender) {
+  const h = heightIn;
   const isFemale = gender === "female";
   return {
     bust:        { min: h * 0.45, max: h * 0.80 },
@@ -345,64 +465,80 @@ export function getPlausibleRanges(heightCm: number, gender: BodyGender) {
     shoulder:    { min: h * 0.20, max: h * 0.35 },
     armLength:   { min: h * 0.28, max: h * 0.42 },
     inseam:      { min: h * 0.38, max: h * 0.55 },
-    neck:        { min: isFemale ? 28 : 32, max: isFemale ? 44 : 52 },
+    neck:        { min: isFemale ? 11.0 : 12.6, max: isFemale ? 17.3 : 20.5 },
     backLength:  { min: h * 0.18, max: h * 0.32 },
     frontLength: { min: h * 0.16, max: h * 0.30 },
     sleeveLength:{ min: h * 0.27, max: h * 0.41 },
-    wrist:       { min: 12, max: 24 },
+    wrist:       { min: 4.7,  max: 9.5 },
     thigh:       { min: h * 0.25, max: h * 0.50 },
     knee:        { min: h * 0.18, max: h * 0.32 },
     calf:        { min: h * 0.16, max: h * 0.30 },
-    ankle:       { min: 16, max: 32 },
+    ankle:       { min: 6.3,  max: 12.6 },
   };
 }
 
 /* -------------------------------------------------------------------------- */
-/*  PoseLandmarker initialisation                                              */
+/*  PoseLandmarker init — full model + segmentation enabled                    */
 /* -------------------------------------------------------------------------- */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PoseLandmarkerType = any;
 
-export async function initPoseLandmarker(): Promise<PoseLandmarkerType> {
-  // Dynamic import — only loads in the browser
+export async function initPoseLandmarker(
+  runningMode: "IMAGE" | "VIDEO" = "IMAGE",
+): Promise<PoseLandmarkerType> {
   const vision = await import("@mediapipe/tasks-vision");
   const { PoseLandmarker, FilesetResolver } = vision;
 
   const filesetResolver = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm"
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm",
   );
 
-  // Use the full model for better accuracy on diverse body types
-  const poseLandmarker = await PoseLandmarker.createFromOptions(filesetResolver, {
+  return PoseLandmarker.createFromOptions(filesetResolver, {
     baseOptions: {
       modelAssetPath:
         "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
       delegate: "GPU",
     },
-    runningMode: "IMAGE",
+    runningMode,
     numPoses: 1,
+    outputSegmentationMasks: true,
   });
-
-  return poseLandmarker;
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Detect landmarks from an image element                                     */
-/* -------------------------------------------------------------------------- */
 
 export async function detectLandmarks(
   poseLandmarker: PoseLandmarkerType,
-  img: HTMLImageElement
-): Promise<Landmark[] | null> {
-  const result = poseLandmarker.detect(img);
-  if (!result.landmarks || result.landmarks.length === 0) return null;
-  return result.landmarks[0] as Landmark[];
-}
+  img: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
+  /** Required when runningMode === "VIDEO" */
+  videoTimestampMs?: number,
+): Promise<{ landmarks: Landmark[] | null; segmentationMask: Uint8Array | null }> {
+  const result = videoTimestampMs !== undefined
+    ? poseLandmarker.detectForVideo(img, videoTimestampMs)
+    : poseLandmarker.detect(img);
 
-/* -------------------------------------------------------------------------- */
-/*  Load image from data-URL into an HTMLImageElement                          */
-/* -------------------------------------------------------------------------- */
+  const lms: Landmark[] | null =
+    result.landmarks && result.landmarks.length > 0
+      ? (result.landmarks[0] as Landmark[])
+      : null;
+
+  // Convert MPImage segmentation mask → Uint8Array binary
+  let mask: Uint8Array | null = null;
+  if (result.segmentationMasks && result.segmentationMasks.length > 0) {
+    const m = result.segmentationMasks[0];
+    try {
+      const floatArr: Float32Array | undefined =
+        typeof m.getAsFloat32Array === "function" ? m.getAsFloat32Array() : undefined;
+      if (floatArr) {
+        mask = new Uint8Array(floatArr.length);
+        for (let i = 0; i < floatArr.length; i++) mask[i] = floatArr[i] > 0.5 ? 1 : 0;
+      }
+    } finally {
+      if (typeof m.close === "function") m.close();
+    }
+  }
+
+  return { landmarks: lms, segmentationMask: mask };
+}
 
 export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -415,8 +551,7 @@ export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Photo Quality Validation                                                    */
-/*  Checks brightness and sharpness before AI analysis                         */
+/*  Photo quality validation (brightness + sharpness)                          */
 /* -------------------------------------------------------------------------- */
 
 export interface PhotoQualityResult {
@@ -424,410 +559,375 @@ export interface PhotoQualityResult {
   issues: string[];
 }
 
-/** Perceived luminance from pixel data (0-255 scale) */
 function checkImageBrightness(data: Uint8ClampedArray): { ok: boolean; issue?: string } {
-  let totalLuminance = 0;
-  const pixelCount = data.length / 4;
+  let total = 0;
+  const px = data.length / 4;
   for (let i = 0; i < data.length; i += 4) {
-    // Perceived luminance: 0.299R + 0.587G + 0.114B
-    totalLuminance += data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    total += data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
   }
-  const avg = totalLuminance / pixelCount;
-  if (avg < 40) return { ok: false, issue: "Photo is too dark — move to a brighter area or turn on a light" };
-  if (avg > 220) return { ok: false, issue: "Photo is overexposed — avoid direct bright light behind you" };
+  const avg = total / px;
+  if (avg < 40) return { ok: false, issue: "Photo is too dark — find a brighter spot" };
+  if (avg > 220) return { ok: false, issue: "Photo is overexposed — avoid bright light behind you" };
   return { ok: true };
 }
 
-/** Laplacian variance for blur detection (higher = sharper) */
-function checkImageSharpness(data: Uint8ClampedArray, width: number, height: number): { ok: boolean; issue?: string } {
-  // Convert to grayscale and compute Laplacian variance
-  const gray = new Float32Array(width * height);
+function checkImageSharpness(data: Uint8ClampedArray, w: number, h: number): { ok: boolean; issue?: string } {
+  const gray = new Float32Array(w * h);
   for (let i = 0; i < gray.length; i++) {
     const idx = i * 4;
     gray[i] = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
   }
-
-  let sum = 0;
-  let sumSq = 0;
-  let count = 0;
-
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const idx = y * width + x;
-      // Laplacian kernel: [0,1,0; 1,-4,1; 0,1,0]
-      const laplacian =
-        gray[idx - width] + gray[idx + width] +
-        gray[idx - 1] + gray[idx + 1] -
-        4 * gray[idx];
-      sum += laplacian;
-      sumSq += laplacian * laplacian;
-      count++;
+  let sum = 0, sumSq = 0, count = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = y * w + x;
+      const lap = gray[idx - w] + gray[idx + w] + gray[idx - 1] + gray[idx + 1] - 4 * gray[idx];
+      sum += lap; sumSq += lap * lap; count++;
     }
   }
-
   const mean = sum / count;
   const variance = sumSq / count - mean * mean;
-
-  // Threshold ~100 — below this the image is too blurry
-  if (variance < 100) return { ok: false, issue: "Photo appears blurry — hold the camera steady or tap to focus" };
+  if (variance < 120) return { ok: false, issue: "Photo is blurry — hold the camera steady" };
   return { ok: true };
 }
 
-/** Validate photo quality: brightness + sharpness. Loads image to canvas for analysis. */
 export async function validatePhotoQuality(dataUrl: string): Promise<PhotoQualityResult> {
   const issues: string[] = [];
   try {
     const img = await loadImage(dataUrl);
-    // Use a smaller canvas for performance (max 640px)
     const maxDim = 640;
     const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
     const w = Math.round(img.width * scale);
     const h = Math.round(img.height * scale);
-
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return { ok: true, issues: [] };
     ctx.drawImage(img, 0, 0, w, h);
-    const imageData = ctx.getImageData(0, 0, w, h);
-
-    const brightness = checkImageBrightness(imageData.data);
-    if (!brightness.ok && brightness.issue) issues.push(brightness.issue);
-
-    const sharpness = checkImageSharpness(imageData.data, w, h);
-    if (!sharpness.ok && sharpness.issue) issues.push(sharpness.issue);
+    const data = ctx.getImageData(0, 0, w, h);
+    const b = checkImageBrightness(data.data);
+    if (!b.ok && b.issue) issues.push(b.issue);
+    const s = checkImageSharpness(data.data, w, h);
+    if (!s.ok && s.issue) issues.push(s.issue);
   } catch {
-    // If quality check fails, don't block — just skip
+    /* skip */
   }
   return { ok: issues.length === 0, issues };
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Calculate body measurements from front + side landmarks                    */
-/*  Gender-aware calibration for African / Nigerian body types                 */
+/*  Anatomical cross-validation (works in inches)                              */
+/* -------------------------------------------------------------------------- */
+
+function crossValidateAndNudge(
+  m: Record<string, number>,
+  gender: BodyGender,
+): Record<string, number> {
+  const r = { ...m };
+
+  // Bust >= waist
+  if (r.bust < r.waist) {
+    const avg = (r.bust + r.waist) / 2;
+    r.bust = avg + 0.8;   // ≈ 2 cm
+    r.waist = avg - 0.8;
+  }
+  // Hips >= waist for female
+  if (gender === "female" && r.hips < r.waist) r.hips = r.waist + 1.6;
+  // Taper: thigh > knee > calf > ankle
+  if (r.thigh <= r.knee) {
+    const avg = (r.thigh + r.knee) / 2;
+    r.thigh = avg + 0.4;
+    r.knee = avg - 0.4;
+  }
+  if (r.knee <= r.calf) r.calf = r.knee - 0.8;
+  if (r.calf <= r.ankle) r.ankle = r.calf - 0.8;
+  // Chest within ~2" of bust
+  if (Math.abs(r.chest - r.bust) > 2) r.chest = r.bust - 0.4;
+  // Front length 88–100% of back length
+  const fb = r.frontLength / r.backLength;
+  if (fb > 1.0) r.frontLength = r.backLength * 0.95;
+  else if (fb < 0.85) r.frontLength = r.backLength * 0.92;
+
+  return r;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Core measurement calculation                                                */
+/*                                                                              */
+/*  Inputs:                                                                     */
+/*    front, side       — CapturedFrame (landmarks + optional mask)            */
+/*    heightCm          — user-entered height (fallback scale)                  */
+/*    cardScaleCmPerPx  — optional precise scale from ID card                  */
+/*    gender                                                                    */
 /* -------------------------------------------------------------------------- */
 
 export function calculateMeasurements(
-  front: Landmark[],
-  side: Landmark[] | null,
+  front: CapturedFrame,
+  side: CapturedFrame | null,
   heightCm: number,
-  frontW: number,
-  frontH: number,
-  sideW?: number,
-  sideH?: number,
-  gender: BodyGender = "female"
+  gender: BodyGender = "female",
+  cardScaleCmPerPx?: number | null,
 ): MeasurementResult {
-  const R = computeDynamicRatios(front, gender, frontW, frontH);
-  const ranges = getPlausibleRanges(heightCm, gender);
+  const fLm = front.landmarks;
+  const sLm = side?.landmarks;
+  const fW = front.width;
+  const fH = front.height;
+  const sW = side?.width ?? 0;
+  const sH = side?.height ?? 0;
 
-  /* ---- Scale factor from known height ---- */
-  const noseY = front[L.NOSE].y;
-  const shoulderMidY = midY(front[L.LEFT_SHOULDER], front[L.RIGHT_SHOULDER]);
+  const R = computeDynamicRatios(fLm, gender, fW, fH);
 
-  // Improved head-top estimation using ear landmarks
-  const leftEarY = front[L.LEFT_EAR]?.y ?? noseY;
-  const rightEarY = front[L.RIGHT_EAR]?.y ?? noseY;
-  const earMidY = (leftEarY + rightEarY) / 2;
-  const earVisibility = Math.max(
-    front[L.LEFT_EAR]?.visibility ?? 0,
-    front[L.RIGHT_EAR]?.visibility ?? 0
-  );
-  // Ears are at roughly mid-head height. Crown is ~2.2x the nose-to-ear distance above nose.
-  const noseToEarDist = Math.abs(noseY - earMidY);
-  const headAboveNose = (earVisibility > 0.3 && noseToEarDist > 0.005)
-    ? noseToEarDist * 2.2
-    : (shoulderMidY - noseY) * 0.55; // fallback to old method
-  const headTopY = Math.max(0, noseY - headAboveNose);
-  // Feet = lowest visible point
-  const feetY = Math.max(
-    front[L.LEFT_ANKLE].y,
-    front[L.RIGHT_ANKLE].y,
-    front[L.LEFT_HEEL]?.y ?? front[L.LEFT_ANKLE].y,
-    front[L.RIGHT_HEEL]?.y ?? front[L.RIGHT_ANKLE].y
-  );
-  const bodyHeightPx = (feetY - headTopY) * frontH;
-  const scale = bodyHeightPx > 0 ? heightCm / bodyHeightPx : 1;
+  /* ---- Scale: card beats height every time ---- */
+  let scale: number; // cm per pixel of the FRONT image
+  let scaleSource: "card" | "height";
 
-  const cm = (px: number) => px * scale;
+  if (cardScaleCmPerPx && cardScaleCmPerPx > 0) {
+    scale = cardScaleCmPerPx;
+    scaleSource = "card";
+  } else {
+    const noseY = fLm[L.NOSE].y;
+    const shoulderMidY = midY(fLm[L.LEFT_SHOULDER], fLm[L.RIGHT_SHOULDER]);
+    const leftEarY = fLm[L.LEFT_EAR]?.y ?? noseY;
+    const rightEarY = fLm[L.RIGHT_EAR]?.y ?? noseY;
+    const earMidY = (leftEarY + rightEarY) / 2;
+    const earVis = Math.max(fLm[L.LEFT_EAR]?.visibility ?? 0, fLm[L.RIGHT_EAR]?.visibility ?? 0);
+    const noseToEar = Math.abs(noseY - earMidY);
+    const headAbove = (earVis > 0.3 && noseToEar > 0.005)
+      ? noseToEar * 2.2
+      : (shoulderMidY - noseY) * 0.55;
+    const headTopY = Math.max(0, noseY - headAbove);
+    const feetY = Math.max(
+      fLm[L.LEFT_ANKLE].y, fLm[L.RIGHT_ANKLE].y,
+      fLm[L.LEFT_HEEL]?.y ?? fLm[L.LEFT_ANKLE].y,
+      fLm[L.RIGHT_HEEL]?.y ?? fLm[L.RIGHT_ANKLE].y,
+    );
+    const bodyHeightPx = (feetY - headTopY) * fH;
+    scale = bodyHeightPx > 0 ? heightCm / bodyHeightPx : 1;
+    scaleSource = "height";
+  }
+
+  const cmFromPx = (px: number) => px * scale;
+  const heightIn = cmToIn(heightCm);
+  const ranges = getPlausibleRanges(heightIn, gender);
 
   /* ---- Shoulder width ---- */
-  const shoulderPx = dist2D(front[L.LEFT_SHOULDER], front[L.RIGHT_SHOULDER], frontW, frontH);
-  const shoulder = clampMeasurement(cm(shoulderPx), ranges.shoulder.min, ranges.shoulder.max);
+  const shoulderPx = dist2D(fLm[L.LEFT_SHOULDER], fLm[L.RIGHT_SHOULDER], fW, fH);
+  const shoulderCm = cmFromPx(shoulderPx);
 
-  /* ---- Arm length (average L+R: shoulder → elbow → wrist) ---- */
-  const leftArmPx =
-    dist2D(front[L.LEFT_SHOULDER], front[L.LEFT_ELBOW], frontW, frontH) +
-    dist2D(front[L.LEFT_ELBOW], front[L.LEFT_WRIST], frontW, frontH);
-  const rightArmPx =
-    dist2D(front[L.RIGHT_SHOULDER], front[L.RIGHT_ELBOW], frontW, frontH) +
-    dist2D(front[L.RIGHT_ELBOW], front[L.RIGHT_WRIST], frontW, frontH);
-  const armLength = clampMeasurement(cm((leftArmPx + rightArmPx) / 2), ranges.armLength.min, ranges.armLength.max);
+  /* ---- Arm length (avg L+R) ---- */
+  const lArmPx = dist2D(fLm[L.LEFT_SHOULDER], fLm[L.LEFT_ELBOW], fW, fH)
+              + dist2D(fLm[L.LEFT_ELBOW],    fLm[L.LEFT_WRIST], fW, fH);
+  const rArmPx = dist2D(fLm[L.RIGHT_SHOULDER], fLm[L.RIGHT_ELBOW], fW, fH)
+              + dist2D(fLm[L.RIGHT_ELBOW],    fLm[L.RIGHT_WRIST], fW, fH);
+  const armLengthCm = cmFromPx((lArmPx + rArmPx) / 2);
+  const sleeveLengthCm = armLengthCm * 0.97;
 
-  /* ---- Sleeve length ---- */
-  const sleeveLength = clampMeasurement(armLength * 0.97, ranges.sleeveLength.min, ranges.sleeveLength.max);
+  /* ---- Inseam ---- */
+  const hipCx = midX(fLm[L.LEFT_HIP], fLm[L.RIGHT_HIP]);
+  const hipCy = midY(fLm[L.LEFT_HIP], fLm[L.RIGHT_HIP]);
+  const hipCenter: Landmark = { x: hipCx, y: hipCy, z: 0 };
+  const lInseamPx = dist2D(hipCenter, fLm[L.LEFT_KNEE], fW, fH)
+                  + dist2D(fLm[L.LEFT_KNEE], fLm[L.LEFT_ANKLE], fW, fH);
+  const rInseamPx = dist2D(hipCenter, fLm[L.RIGHT_KNEE], fW, fH)
+                  + dist2D(fLm[L.RIGHT_KNEE], fLm[L.RIGHT_ANKLE], fW, fH);
+  const inseamCm = cmFromPx((lInseamPx + rInseamPx) / 2);
 
-  /* ---- Inseam (hip centre → knee → ankle, average L+R) ---- */
-  const hipCenterY = midY(front[L.LEFT_HIP], front[L.RIGHT_HIP]);
-  const hipCenterX = midX(front[L.LEFT_HIP], front[L.RIGHT_HIP]);
-  const hipCenter: Landmark = { x: hipCenterX, y: hipCenterY, z: 0 };
-  const leftInseam =
-    dist2D(hipCenter, front[L.LEFT_KNEE], frontW, frontH) +
-    dist2D(front[L.LEFT_KNEE], front[L.LEFT_ANKLE], frontW, frontH);
-  const rightInseam =
-    dist2D(hipCenter, front[L.RIGHT_KNEE], frontW, frontH) +
-    dist2D(front[L.RIGHT_KNEE], front[L.RIGHT_ANKLE], frontW, frontH);
-  const inseam = clampMeasurement(cm((leftInseam + rightInseam) / 2), ranges.inseam.min, ranges.inseam.max);
-
-  /* ---- Back / front length (shoulder midpoint → waist estimate) ---- */
-  // Improved waist position: use elbow Y as reference when available
-  // At rest, elbows typically align near the natural waist
+  /* ---- Back / front length ---- */
   let waistRatio = gender === "female" ? 0.53 : 0.55;
-  const hipMidY = midY(front[L.LEFT_HIP], front[L.RIGHT_HIP]);
-  if (side) {
-    const elbowY = midY(
-      side[L.LEFT_ELBOW] ?? front[L.LEFT_ELBOW],
-      side[L.RIGHT_ELBOW] ?? front[L.RIGHT_ELBOW]
-    );
-    const sideShoulderY = midY(
-      side[L.LEFT_SHOULDER] ?? front[L.LEFT_SHOULDER],
-      side[L.RIGHT_SHOULDER] ?? front[L.RIGHT_SHOULDER]
-    );
-    const sideHipY = midY(
-      side[L.LEFT_HIP] ?? front[L.LEFT_HIP],
-      side[L.RIGHT_HIP] ?? front[L.RIGHT_HIP]
-    );
-    if (elbowY > sideShoulderY && elbowY < sideHipY) {
-      // Elbow typically aligns slightly below the waist
-      const elbowRatio = (elbowY - sideShoulderY) / (sideHipY - sideShoulderY);
-      const elbowBased = Math.max(0.40, Math.min(0.65, elbowRatio - 0.03));
-      // Blend: 70% elbow-derived, 30% default anthropometric ratio
-      waistRatio = waistRatio * 0.3 + elbowBased * 0.7;
+  const shoulderMidY = midY(fLm[L.LEFT_SHOULDER], fLm[L.RIGHT_SHOULDER]);
+  const hipMidY = midY(fLm[L.LEFT_HIP], fLm[L.RIGHT_HIP]);
+  if (sLm) {
+    const elbowY = midY(sLm[L.LEFT_ELBOW] ?? fLm[L.LEFT_ELBOW], sLm[L.RIGHT_ELBOW] ?? fLm[L.RIGHT_ELBOW]);
+    const sShY = midY(sLm[L.LEFT_SHOULDER] ?? fLm[L.LEFT_SHOULDER], sLm[L.RIGHT_SHOULDER] ?? fLm[L.RIGHT_SHOULDER]);
+    const sHipY = midY(sLm[L.LEFT_HIP] ?? fLm[L.LEFT_HIP], sLm[L.RIGHT_HIP] ?? fLm[L.RIGHT_HIP]);
+    if (elbowY > sShY && elbowY < sHipY) {
+      const ebr = (elbowY - sShY) / (sHipY - sShY);
+      const eb = clamp(ebr - 0.03, 0.40, 0.65);
+      waistRatio = waistRatio * 0.3 + eb * 0.7;
     }
   }
   const waistY = shoulderMidY + (hipMidY - shoulderMidY) * waistRatio;
-  const backLengthPx = (waistY - shoulderMidY) * frontH;
-  const backLength = clampMeasurement(
-    cm(backLengthPx) * R.backLengthCurveCorrection,
-    ranges.backLength.min,
-    ranges.backLength.max
-  );
-  const frontLength = clampMeasurement(
-    backLength * R.frontToBackRatio,
-    ranges.frontLength.min,
-    ranges.frontLength.max
-  );
+  const backLengthCm = cmFromPx((waistY - shoulderMidY) * fH) * R.backLengthCurveCorrection;
+  const frontLengthCm = backLengthCm * R.frontToBackRatio;
 
-  /* ---- Hip width (from front landmarks) ---- */
-  const hipWidthPx = dist2D(front[L.LEFT_HIP], front[L.RIGHT_HIP], frontW, frontH);
-  const hipWidthCm = cm(hipWidthPx);
+  /* ---- Body widths: silhouette FIRST, joint ratios as fallback ---- */
+  // Y rows for measurement bands
+  const bustY = shoulderMidY + (hipMidY - shoulderMidY) * 0.18;
+  const waistYn = waistY;
+  const hipYn = shoulderMidY + (hipMidY - shoulderMidY) * 0.95;
 
-  /* ---- Circumference estimates ---- */
-  let bust: number, waist: number, hips: number, chest: number;
-
-  if (side && sideW && sideH) {
-    // Use both views for elliptical circumference (most accurate)
-    const sideNoseY = side[L.NOSE].y;
-    const sideShouldMidY = midY(side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER]);
-    const sideEarMidY = ((side[L.LEFT_EAR]?.y ?? sideNoseY) + (side[L.RIGHT_EAR]?.y ?? sideNoseY)) / 2;
-    const sideEarVis = Math.max(side[L.LEFT_EAR]?.visibility ?? 0, side[L.RIGHT_EAR]?.visibility ?? 0);
-    const sideNoseToEar = Math.abs(sideNoseY - sideEarMidY);
-    const sideHeadAbove = (sideEarVis > 0.3 && sideNoseToEar > 0.005)
-      ? sideNoseToEar * 2.2
-      : (sideShouldMidY - sideNoseY) * 0.55;
-    const sideHeadTopY = Math.max(0, sideNoseY - sideHeadAbove);
-    const sideFeetY = Math.max(side[L.LEFT_ANKLE].y, side[L.RIGHT_ANKLE].y);
-    const sideBodyPx = (sideFeetY - sideHeadTopY) * sideH;
-    const sideScale = sideBodyPx > 0 ? heightCm / sideBodyPx : scale;
-
-    // Improved side depth: measure horizontal body extent at each level
-    let chestDepthCm = estimateSideDepth(side, sideW, sideScale, "bust");
-    let hipDepthCm = estimateSideDepth(side, sideW, sideScale, "hip");
-
-    // Fallback to old factor-based method if side depth is unreliable
-    if (chestDepthCm <= 0) {
-      const sideShoulderWidthPx = dist2D(side[L.LEFT_SHOULDER], side[L.RIGHT_SHOULDER], sideW, sideH);
-      chestDepthCm = sideShoulderWidthPx * sideScale * R.chestDepthFactor;
-      chestDepthCm = Math.max(chestDepthCm, 18); // minimum realistic chest depth
-    }
-    if (hipDepthCm <= 0) {
-      const sideHipWidthPx = dist2D(side[L.LEFT_HIP], side[L.RIGHT_HIP], sideW, sideH);
-      hipDepthCm = sideHipWidthPx * sideScale * R.hipDepthFactor;
-      hipDepthCm = Math.max(hipDepthCm, 18);
-    }
-
-    const waistDepthCm = (chestDepthCm + hipDepthCm) / 2 * R.waistDepthFactor;
-
-    // Ellipse circumferences (half-widths), gender-calibrated
-    const bustHalfW = shoulder * R.bustHalfWidthRatio;
-    const waistHalfW = hipWidthCm * R.waistHalfWidthRatio;
-    const hipHalfW = hipWidthCm * R.hipHalfWidthRatio;
-
-    bust = ellipseCirc(bustHalfW, chestDepthCm / 2);
-    chest = bust;
-    waist = ellipseCirc(waistHalfW, waistDepthCm / 2);
-    hips = ellipseCirc(hipHalfW, hipDepthCm / 2);
-  } else {
-    // Fallback: gender-calibrated anthropometric ratio estimation
-    bust = shoulder * R.bustFromShoulder;
-    chest = shoulder * R.chestFromShoulder;
-    waist = hipWidthCm * R.waistFromHipWidth;
-    hips = hipWidthCm * R.hipsFromHipWidth;
+  function widthCmFromMaskAt(yNorm: number): number {
+    const px = widthAtY(front.segmentationMask, fW, fH, yNorm, 5);
+    return isNaN(px) ? NaN : cmFromPx(px);
   }
 
-  // Clamp circumferences to plausible ranges
-  bust = clampMeasurement(bust, ranges.bust.min, ranges.bust.max);
-  chest = clampMeasurement(chest, ranges.chest.min, ranges.chest.max);
-  waist = clampMeasurement(waist, ranges.waist.min, ranges.waist.max);
-  hips = clampMeasurement(hips, ranges.hips.min, ranges.hips.max);
+  const bustWidthMaskCm = widthCmFromMaskAt(bustY);
+  const waistWidthMaskCm = widthCmFromMaskAt(waistYn);
+  const hipWidthMaskCm = widthCmFromMaskAt(hipYn);
 
-  /* ---- Neck circumference (gender-calibrated) ---- */
-  // Neck diameter derived from ear-to-ear distance (head width proxy)
-  const earDist = dist2D(front[L.LEFT_EAR], front[L.RIGHT_EAR], frontW, frontH);
-  const neckDiameter = cm(earDist) * R.neckWidthFromEars;
-  let neck: number;
-  if (side && sideW && sideH) {
-    // Ellipse approximation: neck is slightly flatter front-to-back
-    const neckDepth = neckDiameter * (gender === "female" ? 0.85 : 0.90);
-    neck = ellipseCirc(neckDiameter / 2, neckDepth / 2);
-  } else {
-    neck = neckDiameter * Math.PI;
+  const hipWidthFallbackCm = cmFromPx(dist2D(fLm[L.LEFT_HIP], fLm[L.RIGHT_HIP], fW, fH));
+
+  // Choose source per band
+  const bustWidthCm = isFinite(bustWidthMaskCm) ? bustWidthMaskCm : shoulderCm; // shoulder is decent proxy
+  const waistWidthCm = isFinite(waistWidthMaskCm) ? waistWidthMaskCm : hipWidthFallbackCm * 0.92;
+  const hipWidthCm = isFinite(hipWidthMaskCm) ? hipWidthMaskCm : hipWidthFallbackCm;
+
+  /* ---- Side-view depth (silhouette FIRST, factor fallback) ---- */
+  function sideWidthCmAt(yNorm: number): number {
+    if (!side?.segmentationMask) return NaN;
+    const sScale = (() => {
+      // Re-derive scale on side image from height
+      const sNoseY = sLm![L.NOSE].y;
+      const sShY = midY(sLm![L.LEFT_SHOULDER], sLm![L.RIGHT_SHOULDER]);
+      const sHeadAbove = (sShY - sNoseY) * 0.55;
+      const sHeadTopY = Math.max(0, sNoseY - sHeadAbove);
+      const sFeetY = Math.max(sLm![L.LEFT_ANKLE].y, sLm![L.RIGHT_ANKLE].y);
+      const sBodyPx = (sFeetY - sHeadTopY) * sH;
+      return sBodyPx > 0 ? heightCm / sBodyPx : scale;
+    })();
+    const px = widthAtY(side.segmentationMask, sW, sH, yNorm, 5);
+    return isNaN(px) ? NaN : px * sScale;
   }
-  neck = clampMeasurement(neck, ranges.neck.min, ranges.neck.max);
 
-  /* ---- Thigh circumference (gender-calibrated) ---- */
-  const thighWidthEstimate = hipWidthCm * R.thighWidthFromHip;
-  const thigh = clampMeasurement(thighWidthEstimate * R.thighCircFactor, ranges.thigh.min, ranges.thigh.max);
+  const bustDepthMaskCm = sideWidthCmAt(0.32);
+  const waistDepthMaskCm = sideWidthCmAt(0.50);
+  const hipDepthMaskCm = sideWidthCmAt(0.62);
 
-  /* ---- Knee circumference ---- */
-  const kneeWidthPx = dist2D(front[L.LEFT_KNEE], front[L.RIGHT_KNEE], frontW, frontH);
-  const kneeWidth = cm(kneeWidthPx);
-  const knee = clampMeasurement(kneeWidth * R.kneeCircFactor, ranges.knee.min, ranges.knee.max);
+  const chestDepthCm = isFinite(bustDepthMaskCm)
+    ? bustDepthMaskCm
+    : Math.max(shoulderCm * R.chestDepthFactor, 18);
+  const hipDepthCm = isFinite(hipDepthMaskCm)
+    ? hipDepthMaskCm
+    : Math.max(hipWidthFallbackCm * R.hipDepthFactor, 18);
+  const waistDepthCm = isFinite(waistDepthMaskCm)
+    ? waistDepthMaskCm
+    : ((chestDepthCm + hipDepthCm) / 2) * R.waistDepthFactor;
 
-  /* ---- Calf ---- */
-  const calfWidth = kneeWidth * R.calfFromKnee;
-  const calf = clampMeasurement(calfWidth * R.calfCircFactor, ranges.calf.min, ranges.calf.max);
+  /* ---- Circumferences via ellipse, using TRUE silhouette half-widths ---- */
+  let bustCm = ellipseCirc(bustWidthCm / 2, chestDepthCm / 2);
+  let chestCm = bustCm;
+  let waistCm = ellipseCirc(waistWidthCm / 2, waistDepthCm / 2);
+  let hipsCm = ellipseCirc(hipWidthCm / 2, hipDepthCm / 2);
 
-  /* ---- Ankle ---- */
-  const ankleWidthPx = dist2D(front[L.LEFT_ANKLE], front[L.RIGHT_ANKLE], frontW, frontH);
-  const ankle = clampMeasurement(cm(ankleWidthPx) * 1.0, ranges.ankle.min, ranges.ankle.max);
+  /* ---- Fallback when no side photo at all ---- */
+  if (!sLm) {
+    bustCm = isFinite(bustWidthMaskCm)
+      ? ellipseCirc(bustWidthCm / 2, bustWidthCm / 2 * (gender === "female" ? 0.85 : 0.78))
+      : shoulderCm * R.bustFromShoulder;
+    chestCm = bustCm;
+    waistCm = isFinite(waistWidthMaskCm)
+      ? ellipseCirc(waistWidthCm / 2, waistWidthCm / 2 * 0.78)
+      : hipWidthFallbackCm * R.waistFromHipWidth;
+    hipsCm = isFinite(hipWidthMaskCm)
+      ? ellipseCirc(hipWidthCm / 2, hipWidthCm / 2 * (gender === "female" ? 0.95 : 0.82))
+      : hipWidthFallbackCm * R.hipsFromHipWidth;
+  }
 
-  /* ---- Wrist ---- */
-  const wristWidthPx = dist2D(front[L.LEFT_WRIST], front[L.RIGHT_WRIST], frontW, frontH);
-  const wrist = clampMeasurement(cm(wristWidthPx) * R.wristFactor, ranges.wrist.min, ranges.wrist.max);
+  /* ---- Convert to inches and clamp to plausible ranges ---- */
+  let bust = clamp(cmToIn(bustCm),  ranges.bust.min,  ranges.bust.max);
+  let chest = clamp(cmToIn(chestCm), ranges.chest.min, ranges.chest.max);
+  let waist = clamp(cmToIn(waistCm), ranges.waist.min, ranges.waist.max);
+  let hips = clamp(cmToIn(hipsCm),  ranges.hips.min,  ranges.hips.max);
+  const shoulder = clamp(cmToIn(shoulderCm), ranges.shoulder.min, ranges.shoulder.max);
+  const armLength = clamp(cmToIn(armLengthCm), ranges.armLength.min, ranges.armLength.max);
+  const sleeveLength = clamp(cmToIn(sleeveLengthCm), ranges.sleeveLength.min, ranges.sleeveLength.max);
+  const inseam = clamp(cmToIn(inseamCm), ranges.inseam.min, ranges.inseam.max);
+  const backLength = clamp(cmToIn(backLengthCm), ranges.backLength.min, ranges.backLength.max);
+  const frontLength = clamp(cmToIn(frontLengthCm), ranges.frontLength.min, ranges.frontLength.max);
 
-  /* ---- Weight estimate (uses waist-to-height ratio for accuracy) ---- */
+  /* ---- Neck ---- */
+  const earDistPx = dist2D(fLm[L.LEFT_EAR], fLm[L.RIGHT_EAR], fW, fH);
+  const neckDiameterCm = cmFromPx(earDistPx) * R.neckWidthFromEars;
+  let neckCm: number;
+  if (sLm) {
+    const neckDepthCm = neckDiameterCm * (gender === "female" ? 0.85 : 0.90);
+    neckCm = ellipseCirc(neckDiameterCm / 2, neckDepthCm / 2);
+  } else {
+    neckCm = neckDiameterCm * Math.PI;
+  }
+  const neck = clamp(cmToIn(neckCm), ranges.neck.min, ranges.neck.max);
+
+  /* ---- Thigh ---- */
+  const thighWidthCm = hipWidthCm * R.thighWidthFromHip;
+  const thigh = clamp(cmToIn(thighWidthCm * R.thighCircFactor), ranges.thigh.min, ranges.thigh.max);
+
+  /* ---- Knee / Calf / Ankle / Wrist ---- */
+  const kneePx = dist2D(fLm[L.LEFT_KNEE], fLm[L.RIGHT_KNEE], fW, fH);
+  const kneeWidthCm = cmFromPx(kneePx);
+  const knee = clamp(cmToIn(kneeWidthCm * R.kneeCircFactor), ranges.knee.min, ranges.knee.max);
+  const calfWidthCm = kneeWidthCm * R.calfFromKnee;
+  const calf = clamp(cmToIn(calfWidthCm * R.calfCircFactor), ranges.calf.min, ranges.calf.max);
+  const anklePx = dist2D(fLm[L.LEFT_ANKLE], fLm[L.RIGHT_ANKLE], fW, fH);
+  const ankle = clamp(cmToIn(cmFromPx(anklePx)), ranges.ankle.min, ranges.ankle.max);
+  const wristPx = dist2D(fLm[L.LEFT_WRIST], fLm[L.RIGHT_WRIST], fW, fH);
+  const wrist = clamp(cmToIn(cmFromPx(wristPx) * R.wristFactor), ranges.wrist.min, ranges.wrist.max);
+
+  /* ---- Weight (kg) — kept for analytics, not displayed prominently ---- */
   const heightM = heightCm / 100;
-  const waistToHeightRatio = waist / heightCm;
-  // Adjust BMI estimate based on actual waist circumference relative to height
-  // Average waist-to-height ratio is ~0.45; deviation shifts BMI estimate
-  const bmiAdjustment = (waistToHeightRatio - 0.45) * 15;
-  const estimatedBMI = R.averageBMI + bmiAdjustment;
-  const weight = clampMeasurement(estimatedBMI * heightM * heightM, 35, 200);
+  const waistToHeight = (inToCm(waist)) / heightCm;
+  const bmi = R.averageBMI + (waistToHeight - 0.45) * 15;
+  const weightKg = clamp(bmi * heightM * heightM, 35, 200);
 
-  /* ---- NEW: Derived / estimated measurements ---- */
-  // Under Bust: proportional estimate from bust (female: ~85-90% of bust; male: ~96%)
-  const underBust = round1(clampMeasurement(
+  /* ---- Derived measurements (in inches) ---- */
+  const underBust = roundEighth(clamp(
     bust * (gender === "female" ? 0.875 : 0.96),
-    gender === "female" ? 60 : 70,
-    gender === "female" ? 110 : 130
+    gender === "female" ? 23.6 : 27.6,
+    gender === "female" ? 43.3 : 51.2,
   ));
+  const roundArmWidthCm = hipWidthCm * R.thighWidthFromHip * 0.62;
+  const roundArm = roundEighth(clamp(cmToIn(roundArmWidthCm * 2.0), 8.7, 21.7));
+  const halfSleeve = roundEighth(clamp(armLength * 0.55, 9.8, 19.7));
+  const halfLength = roundEighth(clamp(backLength, ranges.backLength.min, ranges.backLength.max));
+  const blouseLength = roundEighth(clamp(backLength * 2.1, 17.7, 35.4));
+  const fullLength = roundEighth(clamp(heightIn * 0.865, 51.2, 74.8));
+  const shoulderToBust = roundEighth(clamp(frontLength * 0.56, 7.1, 11.8));
+  const shoulderToHip = roundEighth(clamp(backLength * 1.62, 13.8, 27.6));
+  const crotchLength = roundEighth(clamp(inseam * 0.22 + waist / 6, 8.7, 15.0));
 
-  // Round Arm: upper arm circumference — estimate from shoulder width and thigh
-  // Upper arm width ≈ hip_width * thighWidthFromHip * 0.62 (arm is narrower than thigh)
-  const roundArmWidth = hipWidthCm * R.thighWidthFromHip * 0.62;
-  const roundArm = round1(clampMeasurement(roundArmWidth * 2.0, 22, 55));
-
-  // Half Sleeve: shoulder point to elbow = approx 55% of full arm length
-  const halfSleeve = round1(clampMeasurement(armLength * 0.55, 25, 50));
-
-  // Half Length: from shoulder/nape to natural waist = backLength
-  const halfLength = round1(clampMeasurement(backLength, ranges.backLength.min, ranges.backLength.max));
-
-  // Blouse Length: nape to below hip — typically backLength + hip-to-nape extension
-  // From shoulder, hips are roughly at backLength / 0.53 * 0.78 of total torso
-  const blouseLength = round1(clampMeasurement(backLength * 2.1, 45, 90));
-
-  // Full Length: top of shoulder to floor ≈ heightCm - head height (≈ 13-14% of height)
-  const fullLength = round1(clampMeasurement(heightCm * 0.865, 130, 190));
-
-  // Shoulder to Bust Point: from shoulder seam to bust apex
-  // Typically 22-27cm for most women (scales with frontLength)
-  const shoulderToBust = round1(clampMeasurement(frontLength * 0.56, 18, 30));
-
-  // Shoulder to Hip Line: from shoulder down to hip bone level
-  const shoulderToHip = round1(clampMeasurement(backLength * 1.62, 35, 70));
-
-  // Crotch Length: waist through crotch to back waist — hard to estimate from photos
-  // Approximate: inseam * 0.22 + waist / 6 (rough anthropometric proxy)
-  const crotchLength = round1(clampMeasurement(inseam * 0.22 + waist / 6, 22, 38));
-
-  /* ---- Confidence score ---- */
-  const keyIndices = [
-    L.LEFT_SHOULDER, L.RIGHT_SHOULDER,
-    L.LEFT_HIP, L.RIGHT_HIP,
-    L.LEFT_KNEE, L.RIGHT_KNEE,
-    L.LEFT_ANKLE, L.RIGHT_ANKLE,
-    L.LEFT_ELBOW, L.RIGHT_ELBOW,
-    L.LEFT_WRIST, L.RIGHT_WRIST,
+  /* ---- Confidence ---- */
+  const keyIdx = [
+    L.LEFT_SHOULDER, L.RIGHT_SHOULDER, L.LEFT_HIP, L.RIGHT_HIP,
+    L.LEFT_KNEE, L.RIGHT_KNEE, L.LEFT_ANKLE, L.RIGHT_ANKLE,
+    L.LEFT_ELBOW, L.RIGHT_ELBOW, L.LEFT_WRIST, L.RIGHT_WRIST,
   ];
-  const avgVisibility =
-    keyIndices.reduce((sum, i) => sum + (front[i]?.visibility ?? 0), 0) / keyIndices.length;
+  const avgVis = keyIdx.reduce((s, i) => s + (fLm[i]?.visibility ?? 0), 0) / keyIdx.length;
+  const sideBonus = sLm ? 0.10 : 0;
+  const cardBonus = scaleSource === "card" ? 0.06 : 0;
+  const maskBonus = front.segmentationMask ? 0.05 : 0;
+  const confidence = clamp(avgVis * 0.80 + sideBonus + cardBonus + maskBonus, 0.55, 0.97);
 
-  // Side photo boosts confidence significantly
-  const sideBonus = side ? 0.12 : 0;
-  // Full model gives higher base confidence
-  const confidence = Math.min(0.95, Math.max(0.55, avgVisibility * 0.85 + sideBonus));
+  const visPair = (a: number, b: number) =>
+    Math.min((fLm[a]?.visibility ?? 0) + (fLm[b]?.visibility ?? 0), 1);
+  const shVis = visPair(L.LEFT_SHOULDER, L.RIGHT_SHOULDER);
+  const hipVis = visPair(L.LEFT_HIP, L.RIGHT_HIP);
+  const kneeVis = visPair(L.LEFT_KNEE, L.RIGHT_KNEE);
+  const ankleVis = visPair(L.LEFT_ANKLE, L.RIGHT_ANKLE);
+  const wristVis = visPair(L.LEFT_WRIST, L.RIGHT_WRIST);
+  const elbowVis = visPair(L.LEFT_ELBOW, L.RIGHT_ELBOW);
 
-  /* ---- Per-measurement confidence scores ---- */
-  const hasSide = !!side;
-  const shoulderVis = Math.min(
-    (front[L.LEFT_SHOULDER]?.visibility ?? 0) + (front[L.RIGHT_SHOULDER]?.visibility ?? 0),
-    1
-  );
-  const hipVis = Math.min(
-    (front[L.LEFT_HIP]?.visibility ?? 0) + (front[L.RIGHT_HIP]?.visibility ?? 0),
-    1
-  );
-  const kneeVis = Math.min(
-    (front[L.LEFT_KNEE]?.visibility ?? 0) + (front[L.RIGHT_KNEE]?.visibility ?? 0),
-    1
-  );
-  const ankleVis = Math.min(
-    (front[L.LEFT_ANKLE]?.visibility ?? 0) + (front[L.RIGHT_ANKLE]?.visibility ?? 0),
-    1
-  );
-  const wristVis = Math.min(
-    (front[L.LEFT_WRIST]?.visibility ?? 0) + (front[L.RIGHT_WRIST]?.visibility ?? 0),
-    1
-  );
-  const elbowVis = Math.min(
-    (front[L.LEFT_ELBOW]?.visibility ?? 0) + (front[L.RIGHT_ELBOW]?.visibility ?? 0),
-    1
-  );
+  const maskBoost = front.segmentationMask ? 0.10 : 0;
 
   const confScores: Record<string, number> = {
-    // Direct measurements — high confidence when landmarks visible
-    bust:          round1(Math.min(0.95, shoulderVis * 0.7 + (hasSide ? 0.25 : 0))),
-    chest:         round1(Math.min(0.95, shoulderVis * 0.7 + (hasSide ? 0.25 : 0))),
-    waist:         round1(Math.min(0.92, hipVis * 0.65 + (hasSide ? 0.22 : 0))),
-    hips:          round1(Math.min(0.92, hipVis * 0.72 + (hasSide ? 0.18 : 0))),
-    shoulder:      round1(Math.min(0.95, shoulderVis)),
-    armLength:     round1(Math.min(0.90, (shoulderVis + elbowVis + wristVis) / 3)),
-    neck:          round1(Math.min(0.85, shoulderVis * 0.75)),
-    backLength:    round1(Math.min(0.88, (shoulderVis + hipVis) / 2)),
-    frontLength:   round1(Math.min(0.85, (shoulderVis + hipVis) / 2)),
-    sleeveLength:  round1(Math.min(0.88, (shoulderVis + elbowVis + wristVis) / 3)),
-    wrist:         round1(Math.min(0.82, wristVis)),
-    thigh:         round1(Math.min(0.80, hipVis * 0.8)),
-    knee:          round1(Math.min(0.82, kneeVis)),
-    calf:          round1(Math.min(0.78, kneeVis * 0.85)),
-    ankle:         round1(Math.min(0.80, ankleVis)),
-    // Estimated measurements — inherently lower confidence
+    bust:          roundEighth(Math.min(0.97, shVis * 0.65 + (sLm ? 0.22 : 0) + maskBoost + cardBonus)),
+    chest:         roundEighth(Math.min(0.97, shVis * 0.65 + (sLm ? 0.22 : 0) + maskBoost + cardBonus)),
+    waist:         roundEighth(Math.min(0.95, hipVis * 0.6 + (sLm ? 0.20 : 0) + maskBoost + cardBonus)),
+    hips:          roundEighth(Math.min(0.95, hipVis * 0.65 + (sLm ? 0.18 : 0) + maskBoost + cardBonus)),
+    shoulder:      roundEighth(Math.min(0.95, shVis + cardBonus)),
+    armLength:     roundEighth(Math.min(0.92, (shVis + elbowVis + wristVis) / 3 + cardBonus)),
+    neck:          roundEighth(Math.min(0.85, shVis * 0.75)),
+    backLength:    roundEighth(Math.min(0.88, (shVis + hipVis) / 2)),
+    frontLength:   roundEighth(Math.min(0.85, (shVis + hipVis) / 2)),
+    sleeveLength:  roundEighth(Math.min(0.90, (shVis + elbowVis + wristVis) / 3 + cardBonus)),
+    wrist:         roundEighth(Math.min(0.82, wristVis)),
+    thigh:         roundEighth(Math.min(0.82, hipVis * 0.8)),
+    knee:          roundEighth(Math.min(0.84, kneeVis)),
+    calf:          roundEighth(Math.min(0.78, kneeVis * 0.85)),
+    ankle:         roundEighth(Math.min(0.82, ankleVis)),
+    inseam:        roundEighth(Math.min(0.90, (hipVis + kneeVis + ankleVis) / 3 + cardBonus)),
     underBust:     0.68,
     roundArm:      0.62,
     halfSleeve:    0.72,
-    halfLength:    round1(Math.min(0.85, (shoulderVis + hipVis) / 2)),
+    halfLength:    roundEighth(Math.min(0.85, (shVis + hipVis) / 2)),
     blouseLength:  0.65,
     fullLength:    0.70,
     shoulderToBust: 0.60,
@@ -835,41 +935,39 @@ export function calculateMeasurements(
     crotchLength:   0.52,
   };
 
-  // Fields that are always AI-estimated (cannot be reliably extracted from photos)
   const aiEstimatedFields = [
     "underBust", "roundArm", "blouseLength", "halfLength",
     "crotchLength", "shoulderToBust", "shoulderToHip",
   ];
 
-  // Cross-validate and nudge anatomically inconsistent measurements
+  /* ---- Cross-validate (in inches) and round to 1/8" ---- */
   const raw = {
-    bust, waist, hips, shoulder, armLength, inseam, neck, chest,
-    backLength, frontLength, sleeveLength, wrist, thigh, knee, calf, ankle,
-    height: heightCm, weight,
+    bust, chest, waist, hips, shoulder, armLength, sleeveLength, inseam,
+    neck, backLength, frontLength, wrist, thigh, knee, calf, ankle,
+    height: heightIn, weight: weightKg,
   };
   const validated = crossValidateAndNudge(raw, gender);
 
   return {
     measurements: {
-      bust:          round1(validated.bust),
-      waist:         round1(validated.waist),
-      hips:          round1(validated.hips),
-      shoulder:      round1(validated.shoulder),
-      armLength:     round1(validated.armLength),
-      inseam:        round1(validated.inseam),
-      neck:          round1(validated.neck),
-      chest:         round1(validated.chest),
-      backLength:    round1(validated.backLength),
-      frontLength:   round1(validated.frontLength),
-      sleeveLength:  round1(validated.sleeveLength),
-      wrist:         round1(validated.wrist),
-      thigh:         round1(validated.thigh),
-      knee:          round1(validated.knee),
-      calf:          round1(validated.calf),
-      ankle:         round1(validated.ankle),
-      height:        round1(heightCm),
-      weight:        round1(validated.weight),
-      // New fields
+      bust:          roundEighth(validated.bust),
+      chest:         roundEighth(validated.chest),
+      waist:         roundEighth(validated.waist),
+      hips:          roundEighth(validated.hips),
+      shoulder:      roundEighth(validated.shoulder),
+      armLength:     roundEighth(validated.armLength),
+      inseam:        roundEighth(validated.inseam),
+      neck:          roundEighth(validated.neck),
+      backLength:    roundEighth(validated.backLength),
+      frontLength:   roundEighth(validated.frontLength),
+      sleeveLength:  roundEighth(validated.sleeveLength),
+      wrist:         roundEighth(validated.wrist),
+      thigh:         roundEighth(validated.thigh),
+      knee:          roundEighth(validated.knee),
+      calf:          roundEighth(validated.calf),
+      ankle:         roundEighth(validated.ankle),
+      height:        roundEighth(heightIn),
+      weight:        Math.round(weightKg * 10) / 10,
       underBust,
       roundArm,
       halfSleeve,
@@ -880,9 +978,54 @@ export function calculateMeasurements(
       shoulderToHip,
       crotchLength,
     },
-    confidence:        round1(confidence),
-    landmarkQuality:   round1(avgVisibility),
-    confidenceScores:  confScores,
+    confidence: roundEighth(confidence),
+    landmarkQuality: roundEighth(avgVis),
+    confidenceScores: confScores,
     aiEstimatedFields,
+    scaleSource,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Tape recalibration                                                          */
+/*                                                                              */
+/*  Designer measures ONE field with a tape (in inches) — we use the ratio to  */
+/*  rescale every CIRCUMFERENCE proportionally (lengths are already accurate). */
+/* -------------------------------------------------------------------------- */
+
+const CIRCUMFERENCE_FIELDS = new Set([
+  "bust", "chest", "underBust", "waist", "hips",
+  "neck", "thigh", "knee", "calf", "ankle", "wrist", "roundArm",
+]);
+
+export interface TapeRecalibration {
+  /** Field the designer measured manually. */
+  anchorField: string;
+  /** Real value in inches measured with a tape. */
+  anchorInches: number;
+  /** Result: the AI measurements rescaled to honour the anchor. */
+  recalibrated: Record<string, number>;
+  /** Multiplicative factor that was applied. */
+  factor: number;
+}
+
+export function recalibrateWithTape(
+  measurements: Record<string, number>,
+  anchorField: string,
+  anchorInches: number,
+): TapeRecalibration | null {
+  const orig = measurements[anchorField];
+  if (!orig || orig <= 0 || !CIRCUMFERENCE_FIELDS.has(anchorField)) return null;
+  const factor = anchorInches / orig;
+  // Refuse silly factors — designer probably typed wrong unit
+  if (factor < 0.5 || factor > 2.0) return null;
+
+  const out: Record<string, number> = { ...measurements };
+  for (const key of Object.keys(out)) {
+    if (CIRCUMFERENCE_FIELDS.has(key)) {
+      out[key] = roundEighth(out[key] * factor);
+    }
+  }
+  out[anchorField] = roundEighth(anchorInches);
+  return { anchorField, anchorInches, recalibrated: out, factor };
 }

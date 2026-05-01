@@ -1,11 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { MEASUREMENT_TYPES, MEASUREMENT_GROUPS } from "@/lib/constants";
-import { cmToDisplayInches } from "@/lib/utils";
-import { UnitToggle } from "@/components/common/unit-toggle";
-import type { MeasurementUnit } from "@/hooks/use-unit-preference";
+import { toDisplayInches } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -71,8 +68,6 @@ const labelMap: Record<string, string> = Object.fromEntries(
 /* -------------------------------------------------------------------------- */
 
 export function MeasurementCardView({ data }: { data: CardData }) {
-  const [unit, setUnit] = useState<MeasurementUnit>("in"); // default inches
-
   const initials = data.clientName
     .split(" ")
     .map((n) => n[0])
@@ -89,8 +84,7 @@ export function MeasurementCardView({ data }: { data: CardData }) {
       year: "numeric",
     }).format(new Date(dateStr));
 
-  const displayVal = (cm: number) =>
-    unit === "in" ? `${cmToDisplayInches(cm)}"` : `${cm.toFixed(1)} cm`;
+  const displayVal = (inches: number) => `${toDisplayInches(inches)}"`;
 
   /* ---- Group rendering ---- */
   const renderGroup = (
@@ -141,9 +135,6 @@ export function MeasurementCardView({ data }: { data: CardData }) {
                 <p className="mt-0.5 text-base font-bold text-[#1A1A2E]">
                   {displayVal(value!)}
                 </p>
-                {unit === "in" && (
-                  <p className="text-[9px] text-[#1A1A2E]/25">{value!.toFixed(1)} cm</p>
-                )}
               </div>
             );
           })}
@@ -205,12 +196,6 @@ export function MeasurementCardView({ data }: { data: CardData }) {
                 </div>
               </div>
 
-              {/* Unit toggle */}
-              <UnitToggle
-                unit={unit}
-                onToggle={() => setUnit(u => u === "in" ? "cm" : "in")}
-                size="sm"
-              />
             </div>
 
             {/* Measurement date */}
@@ -233,12 +218,8 @@ export function MeasurementCardView({ data }: { data: CardData }) {
                     Height
                   </p>
                   <p className="mt-1 text-2xl font-bold text-[#1A1A2E]">
-                    {unit === "in"
-                      ? `${cmToDisplayInches(m.height)}"`
-                      : m.height}
-                    <span className="ml-1 text-xs font-normal text-[#1A1A2E]/35">
-                      {unit === "in" ? "in" : "cm"}
-                    </span>
+                    {toDisplayInches(m.height)}
+                    <span className="ml-1 text-xs font-normal text-[#1A1A2E]/35">in</span>
                   </p>
                 </div>
               )}

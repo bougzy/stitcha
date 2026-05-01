@@ -10,6 +10,7 @@ import { z } from "zod";
 import { Mail, Lock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { triggerInstallPrompt } from "@/components/common/install-prompt";
 
 const quickRegisterSchema = z.object({
   email:    z.string().email("Enter a valid email"),
@@ -53,6 +54,8 @@ export default function RegisterPage() {
       const result = await response.json();
       if (!response.ok) { toast.error(result.error || "Registration failed"); return; }
       toast.success("Account created! Let's set up your profile.");
+      // Nudge new users to install the PWA right after signup.
+      setTimeout(() => triggerInstallPrompt(), 1200);
       router.push("/login?onboarding=1");
     } catch {
       toast.error("Something went wrong. Please try again.");

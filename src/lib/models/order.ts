@@ -35,6 +35,18 @@ export interface IOrder extends Document {
   deletedAt?: Date;
   receiptSent: boolean;
   lastChasedAt?: Date;
+  /** Designer has chosen to feature this order on the public discovery feed. */
+  featuredInFeed?: boolean;
+  /** Optional caption shown on the public feed alongside the order's images. */
+  feedCaption?: string;
+  /** Auto-set when first toggled into the feed; used for sort. */
+  featuredAt?: Date;
+  /** Public like counter (incremented by anonymous + signed-in users). */
+  feedLikes?: number;
+  /** Like-milestone thresholds the post has already crossed (avoids re-notifying). */
+  feedLikeMilestones?: number[];
+  /** Times this post has appeared in a Discover feed response (rough impressions). */
+  feedImpressions?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -80,6 +92,12 @@ const OrderSchema = new Schema<IOrder>(
     deletedAt: { type: Date },
     receiptSent: { type: Boolean, default: false },
     lastChasedAt: { type: Date },
+    featuredInFeed: { type: Boolean, default: false, index: true },
+    feedCaption: { type: String, maxlength: 280 },
+    featuredAt: { type: Date },
+    feedLikes: { type: Number, default: 0, min: 0 },
+    feedLikeMilestones: { type: [Number], default: [] },
+    feedImpressions: { type: Number, default: 0, min: 0 },
     statusHistory: [
       {
         status: { type: String, required: true },
@@ -97,6 +115,8 @@ OrderSchema.index({ designerId: 1, status: 1 });
 OrderSchema.index({ designerId: 1, createdAt: -1 });
 OrderSchema.index({ clientId: 1 });
 OrderSchema.index({ dueDate: 1 });
+// Discovery feed: list public-profile delivered orders that designers featured
+OrderSchema.index({ featuredInFeed: 1, featuredAt: -1 });
 
 export const Order =
   mongoose.models.Order || mongoose.model<IOrder>("Order", OrderSchema);

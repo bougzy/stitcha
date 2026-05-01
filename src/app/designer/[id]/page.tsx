@@ -59,9 +59,11 @@ interface PortfolioItem {
 function ProfileView({
   designer,
   portfolio,
+  featuredCount,
 }: {
   designer: DesignerData;
   portfolio: PortfolioItem[];
+  featuredCount: number;
 }) {
   const initials = designer.name
     .split(" ")
@@ -110,6 +112,27 @@ function ProfileView({
                 <p className="mt-2 text-sm text-[#1A1A2E]/45">
                   {[designer.city, designer.state].filter(Boolean).join(", ")}
                 </p>
+              )}
+
+              {/* Featured-on-Discover badge */}
+              {featuredCount > 0 && (
+                <a
+                  href="/discover"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-[#C75B39]/20 bg-gradient-to-r from-[#C75B39]/[0.06] to-[#D4A853]/[0.08] px-3 py-1 text-[11px] font-semibold text-[#C75B39] transition-colors hover:bg-[#C75B39]/10"
+                >
+                  <svg
+                    className="h-3 w-3"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                    aria-hidden
+                  >
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.539 1.118l-3.366-2.445a1 1 0 00-1.176 0l-3.366 2.445c-.784.57-1.84-.197-1.54-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.51 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" />
+                  </svg>
+                  Featured on Discover
+                  <span className="rounded-full bg-[#C75B39]/15 px-1.5 py-0.5 text-[9px] font-bold">
+                    {featuredCount}
+                  </span>
+                </a>
               )}
             </div>
 
@@ -297,7 +320,18 @@ export default async function PublicDesignerProfile({
       }
     }
 
-    return <ProfileView designer={d} portfolio={portfolio} />;
+    // Count featured-on-Discover orders for the badge
+    const featuredCount = await Order.countDocuments({
+      designerId: id,
+      featuredInFeed: true,
+      status: "delivered",
+      isDeleted: { $ne: true },
+      "gallery.0": { $exists: true },
+    });
+
+    return (
+      <ProfileView designer={d} portfolio={portfolio} featuredCount={featuredCount} />
+    );
   } catch {
     return <NotFoundView />;
   }

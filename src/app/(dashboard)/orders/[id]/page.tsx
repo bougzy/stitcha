@@ -30,6 +30,9 @@ import {
   AlertTriangle,
   Lock,
   ShieldAlert,
+  Sparkles,
+  Globe,
+  Heart,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -1278,6 +1281,23 @@ export default function OrderDetailPage() {
           </GlassCard>
         </motion.div>
 
+        {/* Feature on public Discover feed — only for delivered orders with at least one image */}
+        {order.status === "delivered" && order.gallery && order.gallery.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.39 }}
+          >
+            <FeatureOnFeedCard
+              orderId={order._id}
+              featured={!!order.featuredInFeed}
+              caption={order.feedCaption || ""}
+              likes={order.feedLikes ?? 0}
+              onUpdated={fetchOrder}
+            />
+          </motion.div>
+        )}
+
         {/* Notes section */}
         {order.notes && (
           <motion.div
@@ -1520,5 +1540,161 @@ export default function OrderDetailPage() {
         </Dialog>
       </div>
     </PageTransition>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  FeatureOnFeedCard                                                          */
+/*  Toggles `featuredInFeed` and edits `feedCaption` on an order.              */
+/*  Only mounted for delivered orders that have at least one gallery image.    */
+/* -------------------------------------------------------------------------- */
+
+function FeatureOnFeedCard({
+  orderId,
+  featured,
+  caption,
+  likes,
+  onUpdated,
+}: {
+  orderId: string;
+  featured: boolean;
+  caption: string;
+  likes: number;
+  onUpdated: () => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(caption);
+  const [saving, setSaving] = useState(false);
+
+  async function patch(body: Record<string, unknown>) {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Failed to update");
+      await onUpdated();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#C75B39]/15 to-[#D4A853]/15">
+            <Globe className="h-4 w-4 text-[#C75B39]" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-[#1A1A2E]">
+              Discover feed
+            </h2>
+            <p className="mt-0.5 text-xs text-[#1A1A2E]/55">
+              {featured
+                ? "Visible to designers and customers on the public Discover feed."
+                : "Showcase this work on the public Discover feed."}
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <button
+            onClick={() => patch({ featuredInFeed: !featured })}
+            disabled={saving}
+            className={cn(
+              "rounded-xl px-3 py-1.5 text-xs font-semibold transition-all active:scale-95",
+              featured
+                ? "border border-emerald-300/60 bg-emerald-50/60 text-emerald-700"
+                : "bg-gradient-to-r from-[#C75B39] to-[#b14a2b] text-white shadow-md",
+              saving && "opacity-60",
+            )}
+          >
+            {featured ? "Featured ✓" : "Feature on feed"}
+          </button>
+          {/* Engagement signal — only show once featured (avoid noise pre-launch) */}
+          {featured && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                likes > 0
+                  ? "bg-[#C75B39]/10 text-[#C75B39]"
+                  : "bg-[#1A1A2E]/[0.06] text-[#1A1A2E]/45",
+              )}
+              title={
+                likes > 0
+                  ? `${likes} like${likes === 1 ? "" : "s"} from the Discover feed`
+                  : "No likes yet — your post is live"
+              }
+            >
+              <Heart className={cn("h-3 w-3", likes > 0 && "fill-current")} />
+              {likes > 0 ? `${likes} ${likes === 1 ? "like" : "likes"}` : "No likes yet"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Caption editor */}
+      {featured && (
+        <div className="mt-3 rounded-xl border border-[#1A1A2E]/8 bg-white/40 p-3">
+          {!editing ? (
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs text-[#1A1A2E]/65">
+                {caption ? (
+                  <>
+                    <Sparkles className="mr-1 inline h-3 w-3 text-[#D4A853]" />
+                    {caption}
+                  </>
+                ) : (
+                  <span className="text-[#1A1A2E]/40">
+                    Add a caption (optional) — e.g. "Ankara dress for Owambe, hand-finished"
+                  </span>
+                )}
+              </p>
+              <button
+                onClick={() => { setDraft(caption); setEditing(true); }}
+                className="shrink-0 text-[10px] font-semibold text-[#C75B39] underline"
+              >
+                {caption ? "Edit" : "Add"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <textarea
+                value={draft}
+                maxLength={280}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                className="glass-input w-full resize-none rounded-lg px-3 py-2 text-xs focus-visible:outline-none"
+                placeholder="Tell viewers about this piece — fabric, technique, the story…"
+                autoFocus
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-[#1A1A2E]/40">{draft.length} / 280</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setEditing(false); setDraft(caption); }}
+                    className="text-[10px] font-medium text-[#1A1A2E]/50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => { await patch({ feedCaption: draft.trim() }); setEditing(false); }}
+                    disabled={saving}
+                    className="rounded-lg bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-3 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Save caption
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </GlassCard>
   );
 }

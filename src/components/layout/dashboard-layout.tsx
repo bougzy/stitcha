@@ -5,7 +5,6 @@ import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useState, type ReactNode } from "react";
-import { InstallPrompt } from "@/components/common/install-prompt";
 import { OfflineBanner } from "@/components/common/offline-banner";
 import { CommandPalette } from "@/components/common/command-palette";
 import { SyncIndicator } from "@/components/common/sync-indicator";
@@ -60,8 +59,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Mobile bottom navigation */}
       <MobileNav />
 
-      {/* PWA install prompt */}
-      <InstallPrompt />
+      {/* InstallPrompt is mounted in app/layout.tsx so it's also visible
+         to logged-out visitors and on the scan/portal pages. */}
 
       {/* Command palette (Cmd+K) */}
       <CommandPalette />

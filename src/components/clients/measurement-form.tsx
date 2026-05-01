@@ -17,7 +17,8 @@ import { Button } from "@/components/ui/button";
 import { MeasurementGuide, MeasurementGuideToggle } from "@/components/clients/measurement-guide";
 import { UnitToggle } from "@/components/common/unit-toggle";
 import { useUnitPreference } from "@/hooks/use-unit-preference";
-import { cmToDisplayInches, parseMeasurementInput } from "@/lib/utils";
+import { TapeRecalibrateDialog } from "@/components/scan/tape-recalibrate-dialog";
+import { toDisplayInches, parseMeasurementInput } from "@/lib/utils";
 import {
   GARMENT_PRESETS,
   MEASUREMENT_GROUPS,
@@ -94,24 +95,24 @@ function detectSize(
 
   if (!bestMatch) return null;
 
-  // Check which body areas deviate from the matched size
+  // Check which body areas deviate from the matched size (values are in INCHES)
   if (bust) {
     if (bust > bestMatch.bust[1])
-      notes.push(`Bust is ${(bust - bestMatch.bust[1]).toFixed(1)}cm above ${bestMatch.label} range`);
+      notes.push(`Bust is ${(bust - bestMatch.bust[1]).toFixed(1)}" above ${bestMatch.label} range`);
     else if (bust < bestMatch.bust[0])
-      notes.push(`Bust is ${(bestMatch.bust[0] - bust).toFixed(1)}cm below ${bestMatch.label} range`);
+      notes.push(`Bust is ${(bestMatch.bust[0] - bust).toFixed(1)}" below ${bestMatch.label} range`);
   }
   if (waist) {
     if (waist > bestMatch.waist[1])
-      notes.push(`Waist is ${(waist - bestMatch.waist[1]).toFixed(1)}cm above ${bestMatch.label} range`);
+      notes.push(`Waist is ${(waist - bestMatch.waist[1]).toFixed(1)}" above ${bestMatch.label} range`);
     else if (waist < bestMatch.waist[0])
-      notes.push(`Waist is ${(bestMatch.waist[0] - waist).toFixed(1)}cm below ${bestMatch.label} range`);
+      notes.push(`Waist is ${(bestMatch.waist[0] - waist).toFixed(1)}" below ${bestMatch.label} range`);
   }
   if (hips) {
     if (hips > bestMatch.hips[1])
-      notes.push(`Hips ${(hips - bestMatch.hips[1]).toFixed(1)}cm above ${bestMatch.label} range`);
+      notes.push(`Hips ${(hips - bestMatch.hips[1]).toFixed(1)}" above ${bestMatch.label} range`);
     else if (hips < bestMatch.hips[0])
-      notes.push(`Hips ${(bestMatch.hips[0] - hips).toFixed(1)}cm below ${bestMatch.label} range`);
+      notes.push(`Hips ${(bestMatch.hips[0] - hips).toFixed(1)}" below ${bestMatch.label} range`);
   }
 
   return { size: bestMatch.label, notes };
@@ -150,6 +151,8 @@ export function MeasurementForm({
 }: MeasurementFormProps) {
   const [selectedGarment, setSelectedGarment] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [tapeOpen, setTapeOpen] = useState(false);
+  const [tapeFlash, setTapeFlash] = useState(false);
 
   const {
     register,
@@ -232,6 +235,24 @@ export function MeasurementForm({
     }
   }, [initialData?.source, selectedGarment]);
 
+  /* ---- Snapshot of current numeric values for the tape dialog ---- */
+  const tapeMeasurements = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(allValues)) {
+      if (typeof v === "number" && isFinite(v) && v > 0) out[k] = v;
+    }
+    return out;
+  }, [allValues]);
+
+  /* ---- Push recalibrated values back into the form ---- */
+  function handleTapeApplied(rec: Record<string, number>) {
+    for (const [key, val] of Object.entries(rec)) {
+      setValue(key as keyof MeasurementInput, val, { shouldDirty: true, shouldValidate: true });
+    }
+    setTapeFlash(true);
+    setTimeout(() => setTapeFlash(false), 2500);
+  }
+
   /* ================================================================== */
   /*  GARMENT SELECTION STEP                                             */
   /* ================================================================== */
@@ -304,6 +325,43 @@ export function MeasurementForm({
           Change garment
         </button>
       </div>
+
+      {/* ---- Anchor with a tape (rescales every circumference) ---- */}
+      {Object.keys(tapeMeasurements).length > 0 && (
+        <div
+          className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors ${
+            tapeFlash
+              ? "border-emerald-300/60 bg-emerald-50/60"
+              : "border-[#C75B39]/20 bg-[#C75B39]/[0.04]"
+          }`}
+        >
+          <div className="flex items-start gap-2.5">
+            <Ruler className="mt-0.5 h-4 w-4 shrink-0 text-[#C75B39]" />
+            <div>
+              <p className="text-xs font-semibold text-[#1A1A2E]">
+                {tapeFlash ? "Recalibrated with tape ✓" : "Verify with a tape"}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-[#1A1A2E]/55">
+                Measure ONE field with a tape — every other circumference rescales to match.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTapeOpen(true)}
+            className="shrink-0 rounded-lg bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm active:scale-95"
+          >
+            Anchor
+          </button>
+        </div>
+      )}
+
+      <TapeRecalibrateDialog
+        open={tapeOpen}
+        onClose={() => setTapeOpen(false)}
+        measurements={tapeMeasurements}
+        onApplied={handleTapeApplied}
+      />
 
       {/* ---- Size recommendation ---- */}
       {sizeRecommendation && (
@@ -488,38 +546,26 @@ export function MeasurementForm({
                       <div className="relative">
                         <input
                           type="number"
-                          step={unit === "in" ? "0.5" : "0.1"}
-                          placeholder={
-                            cmVal
-                              ? unit === "in"
-                                ? String(cmToDisplayInches(cmVal))
-                                : String(cmVal)
-                              : "0"
-                          }
+                          step="0.25"
+                          placeholder={cmVal ? String(toDisplayInches(cmVal)) : "0"}
                           onBlur={(e) => {
-                            // When field loses focus, convert entered value to cm and store
+                            // Field loses focus → parse inches and store as inches
                             const raw = e.target.value;
                             if (!raw) return;
-                            const asCm = parseMeasurementInput(raw, unit);
-                            if (asCm !== null) {
-                              setValue(fieldKey, asCm, { shouldValidate: true });
+                            const asInches = parseMeasurementInput(raw);
+                            if (asInches !== null) {
+                              setValue(fieldKey, asInches, { shouldValidate: true });
                             }
                             setFocusedField(null);
                           }}
                           onFocus={() => setFocusedField(measurement.key)}
-                          defaultValue={
-                            cmVal
-                              ? unit === "in"
-                                ? String(cmToDisplayInches(cmVal))
-                                : String(cmVal)
-                              : undefined
-                          }
+                          defaultValue={cmVal ? String(toDisplayInches(cmVal)) : undefined}
                           className="glass-input flex h-9 w-full rounded-lg px-3 py-1.5 pr-10 text-sm text-[#1A1A2E] placeholder:text-[#1A1A2E]/30 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#1A1A2E]/40">
-                          {unit}
+                          in
                         </span>
-                        {/* Hidden registered field to hold the cm value */}
+                        {/* Hidden registered field to hold the inches value */}
                         <input type="hidden" {...register(fieldKey, { valueAsNumber: true })} />
                       </div>
                       {errors[fieldKey] && (

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { AuthProvider } from "@/providers/auth-provider";
 import { ToastProvider } from "@/providers/toast-provider";
+import { InstallPrompt } from "@/components/common/install-prompt";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -72,6 +73,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <ToastProvider />
+          <InstallPrompt />
         </AuthProvider>
       </body>
     </html>
