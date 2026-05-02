@@ -17,7 +17,7 @@
 /* -------------------------------------------------------------------------- */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, X, Share, Plus } from "lucide-react";
+import { Download, X, Share, Plus, Compass, MoreHorizontal } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -83,8 +83,13 @@ function isIOS(): boolean {
 function isIOSSafari(): boolean {
   if (!isIOS()) return false;
   const ua = navigator.userAgent;
-  // Exclude Chrome on iOS (CriOS), Firefox (FxiOS), Edge (EdgiOS)
-  return /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|FBAN|FBAV|Instagram/.test(ua);
+  // Exclude Chrome on iOS (CriOS), Firefox (FxiOS), Edge (EdgiOS), and in-app browsers
+  return /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|FBAN|FBAV|Instagram|Line|MicroMessenger/.test(ua);
+}
+
+function detectInAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /FBAN|FBAV|Instagram|Line|MicroMessenger|Snapchat|Twitter/.test(navigator.userAgent);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -155,9 +160,13 @@ export function triggerInstallPrompt() {
 /*  Component                                                                   */
 /* -------------------------------------------------------------------------- */
 
+type IosMode = "safari" | "other-browser" | "in-app";
+type Variant = "chromium" | "ios";
+
 export function InstallPrompt() {
   const [open, setOpen] = useState(false);
-  const [variant, setVariant] = useState<"chromium" | "ios">("chromium");
+  const [variant, setVariant] = useState<Variant>("chromium");
+  const [iosMode, setIosMode] = useState<IosMode>("safari");
   const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
   const shownThisMountRef = useRef(false);
 
@@ -170,8 +179,11 @@ export function InstallPrompt() {
     const onBIP = (e: Event) => {
       e.preventDefault();
       deferredRef.current = e as BeforeInstallPromptEvent;
-      setVariant("chromium");
-      maybeShow();
+      // Don't override variant if we already chose iOS; on non-iOS it's chromium
+      if (!isIOS()) {
+        setVariant("chromium");
+        maybeShow();
+      }
     };
 
     const onInstalled = () => {
@@ -187,10 +199,15 @@ export function InstallPrompt() {
     window.addEventListener("appinstalled", onInstalled);
     window.addEventListener("stitcha:show-install-prompt", onForceShow);
 
-    // iOS path — beforeinstallprompt never fires; show our own card.
-    if (isIOSSafari()) {
+    // iOS path — beforeinstallprompt never fires on ANY iOS browser.
+    // Show the iOS instructions card for every iOS visitor (the copy adapts).
+    if (isIOS()) {
       setVariant("ios");
-      // Tiny delay so it doesn't compete with first paint
+      if (detectInAppBrowser()) setIosMode("in-app");
+      else if (isIOSSafari()) setIosMode("safari");
+      else setIosMode("other-browser");
+
+      // Slight delay so the prompt doesn't compete with first paint
       const t = window.setTimeout(() => maybeShow(), 1500);
       return () => {
         window.clearTimeout(t);
@@ -262,64 +279,7 @@ export function InstallPrompt() {
 
   /* ---- Render ---- */
   if (variant === "ios") {
-    return (
-      <div
-        role="dialog"
-        aria-label="Install Stitcha"
-        className="fixed bottom-4 left-4 right-4 z-[60] mx-auto max-w-sm animate-slide-up lg:bottom-6 lg:left-auto lg:right-6"
-      >
-        <div className="rounded-2xl border border-white/30 bg-white/85 p-4 shadow-[0_12px_40px_rgba(26,26,46,0.16)] backdrop-blur-xl">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#C75B39] to-[#D4A853]">
-              <Download className="h-5 w-5 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#1A1A2E]">Install Stitcha</p>
-              <p className="text-xs text-[#1A1A2E]/55">
-                Add to your Home Screen — works offline, opens fast.
-              </p>
-            </div>
-            <button
-              onClick={handleDismiss}
-              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg text-[#1A1A2E]/40 hover:bg-[#1A1A2E]/5"
-              aria-label="Dismiss install prompt"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <ol className="mt-3 space-y-2 rounded-xl bg-[#1A1A2E]/5 p-3 text-xs text-[#1A1A2E]/75">
-            <li className="flex items-center gap-2">
-              <span className="font-semibold">1.</span>
-              Tap <Share className="inline h-4 w-4 align-text-bottom text-[#1A1A2E]/60" /> Share at the bottom of Safari
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="font-semibold">2.</span>
-              Choose <Plus className="inline h-4 w-4 align-text-bottom text-[#1A1A2E]/60" /> "Add to Home Screen"
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="font-semibold">3.</span>
-              Tap "Add" — done.
-            </li>
-          </ol>
-
-          <div className="mt-3 flex items-center justify-between">
-            <button
-              onClick={handleNeverShow}
-              className="text-[11px] text-[#1A1A2E]/40 hover:text-[#1A1A2E]/60"
-            >
-              Don&apos;t show again
-            </button>
-            <button
-              onClick={handleDismiss}
-              className="rounded-lg bg-[#1A1A2E]/5 px-3 py-1.5 text-xs font-semibold text-[#1A1A2E]/70 active:scale-95"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <IosInstallCard mode={iosMode} onDismiss={handleDismiss} onNeverShow={handleNeverShow} />;
   }
 
   // Chromium / Android
@@ -358,6 +318,119 @@ export function InstallPrompt() {
         >
           Don&apos;t show again
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  IosInstallCard — adapts copy to Safari / non-Safari iOS browser /         */
+/*  in-app browser. Always renders large-format steps because iOS users can't */
+/*  trigger a one-tap install — they need to tap Share → Add to Home Screen.  */
+/* -------------------------------------------------------------------------- */
+
+function IosInstallCard({
+  mode,
+  onDismiss,
+  onNeverShow,
+}: {
+  mode: IosMode;
+  onDismiss: () => void;
+  onNeverShow: () => void;
+}) {
+  const copy =
+    mode === "safari"
+      ? {
+          title: "Install Stitcha",
+          subtitle: "Add to Home Screen — works offline, opens fast.",
+          steps: [
+            { icon: <Share className="h-4 w-4" />, text: "Tap Share at the bottom of Safari" },
+            { icon: <Plus className="h-4 w-4" />, text: 'Choose "Add to Home Screen"' },
+            { icon: null, text: 'Tap "Add" — done.' },
+          ],
+        }
+      : mode === "other-browser"
+      ? {
+          title: "Install Stitcha (open in Safari)",
+          subtitle: "iOS only lets Safari add apps to the Home Screen.",
+          steps: [
+            { icon: <MoreHorizontal className="h-4 w-4" />, text: "Tap the … menu in this browser" },
+            { icon: <Compass className="h-4 w-4" />, text: 'Choose "Open in Safari"' },
+            { icon: <Share className="h-4 w-4" />, text: "Then tap Share → Add to Home Screen" },
+          ],
+        }
+      : {
+          // in-app (Instagram, Facebook, TikTok, etc.)
+          title: "Install Stitcha",
+          subtitle: "First open this page in Safari — tap the … menu and choose 'Open in Safari'.",
+          steps: [
+            { icon: <MoreHorizontal className="h-4 w-4" />, text: "Tap the … menu (or Open in browser)" },
+            { icon: <Compass className="h-4 w-4" />, text: "Open in Safari" },
+            { icon: <Share className="h-4 w-4" />, text: "Tap Share → Add to Home Screen" },
+          ],
+        };
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Install Stitcha"
+      className="fixed bottom-4 left-4 right-4 z-[60] mx-auto max-w-sm animate-slide-up lg:bottom-6 lg:left-auto lg:right-6"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <div className="rounded-2xl border border-white/40 bg-white/95 p-4 shadow-[0_16px_50px_rgba(26,26,46,0.22)] backdrop-blur-xl">
+        <div className="flex items-start gap-3">
+          {/* Use the actual app icon, not a generic download glyph */}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-[#C75B39] to-[#D4A853] shadow-[0_4px_14px_rgba(199,91,57,0.35)]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/apple-touch-icon.png"
+              alt="Stitcha"
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[15px] font-bold text-[#1A1A2E]">{copy.title}</p>
+            <p className="mt-0.5 text-xs leading-snug text-[#1A1A2E]/60">{copy.subtitle}</p>
+          </div>
+          <button
+            onClick={onDismiss}
+            className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg text-[#1A1A2E]/45 hover:bg-[#1A1A2E]/5"
+            aria-label="Dismiss install prompt"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <ol className="mt-3 space-y-1.5 rounded-xl border border-[#1A1A2E]/8 bg-[#FAFAF8] p-3">
+          {copy.steps.map((step, i) => (
+            <li key={i} className="flex items-center gap-2.5 text-[12px] leading-tight text-[#1A1A2E]/80">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#C75B39] to-[#D4A853] text-[10px] font-bold text-white">
+                {i + 1}
+              </span>
+              {step.icon && (
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white text-[#1A1A2E]/65 shadow-sm">
+                  {step.icon}
+                </span>
+              )}
+              <span className="min-w-0 flex-1">{step.text}</span>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <button
+            onClick={onNeverShow}
+            className="text-[11px] text-[#1A1A2E]/40 hover:text-[#1A1A2E]/60"
+          >
+            Don&apos;t show again
+          </button>
+          <button
+            onClick={onDismiss}
+            className="rounded-lg bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-4 py-2 text-xs font-semibold text-white shadow-md active:scale-95"
+          >
+            Got it
+          </button>
+        </div>
       </div>
     </div>
   );

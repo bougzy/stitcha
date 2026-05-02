@@ -136,9 +136,32 @@ export async function POST(request: Request) {
 
     // Check subscription limit for creating scans
     const designerDoc = await Designer.findById(designerId).select("subscription").lean();
+    const subscription = designerDoc?.subscription || "free";
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const scanCount = await ScanSession.countDocuments({ designerId, createdAt: { $gte: startOfMonth } });
-    const check = checkSubscriptionLimit(designerDoc?.subscription || "free", "create_scan", scanCount);
+
+    // Monthly count (used by Plus plan)
+    const scanCount = await ScanSession.countDocuments({
+      designerId,
+      createdAt: { $gte: startOfMonth },
+    });
+
+    // Lifetime completed scans (used by Free plan trial cap — only count
+    // sessions the client actually finished so a wasted link doesn't burn
+    // a trial slot).
+    let lifetimeCount = 0;
+    if (subscription === "free") {
+      lifetimeCount = await ScanSession.countDocuments({
+        designerId,
+        status: "completed",
+      });
+    }
+
+    const check = checkSubscriptionLimit(
+      subscription,
+      "create_scan",
+      scanCount,
+      lifetimeCount,
+    );
     if (!check.allowed) {
       return NextResponse.json(
         { success: false, error: check.message },

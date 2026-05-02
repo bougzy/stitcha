@@ -1293,6 +1293,7 @@ export default function OrderDetailPage() {
               featured={!!order.featuredInFeed}
               caption={order.feedCaption || ""}
               likes={order.feedLikes ?? 0}
+              boostedUntil={order.boostedUntil ?? null}
               onUpdated={fetchOrder}
             />
           </motion.div>
@@ -1554,17 +1555,39 @@ function FeatureOnFeedCard({
   featured,
   caption,
   likes,
+  boostedUntil,
   onUpdated,
 }: {
   orderId: string;
   featured: boolean;
   caption: string;
   likes: number;
+  boostedUntil: string | null;
   onUpdated: () => void | Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(caption);
   const [saving, setSaving] = useState(false);
+  const [boosting, setBoosting] = useState(false);
+
+  const boostActive = !!boostedUntil && new Date(boostedUntil) > new Date();
+  const boostDaysLeft = boostActive
+    ? Math.max(1, Math.ceil((new Date(boostedUntil!).getTime() - Date.now()) / 86_400_000))
+    : 0;
+
+  async function startBoost() {
+    setBoosting(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/boost`, { method: "POST" });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Boost failed");
+      // Hand off to Paystack — webhook will update boostedUntil on success.
+      window.location.href = json.data.authorizationUrl;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Boost failed");
+      setBoosting(false);
+    }
+  }
 
   async function patch(body: Record<string, unknown>) {
     setSaving(true);
@@ -1637,6 +1660,45 @@ function FeatureOnFeedCard({
           )}
         </div>
       </div>
+
+      {/* Boost — paid pin to top of /discover for 7 days */}
+      {featured && (
+        <div
+          className={cn(
+            "mt-3 flex items-center justify-between gap-3 rounded-xl border p-3",
+            boostActive
+              ? "border-[#D4A853]/40 bg-gradient-to-r from-[#D4A853]/[0.10] to-[#C75B39]/[0.06]"
+              : "border-[#1A1A2E]/8 bg-white/40",
+          )}
+        >
+          <div className="flex items-start gap-2.5">
+            <Sparkles className={cn("mt-0.5 h-4 w-4 shrink-0", boostActive ? "text-[#D4A853]" : "text-[#C75B39]")} />
+            <div>
+              <p className="text-xs font-semibold text-[#1A1A2E]">
+                {boostActive ? `🚀 Boosted — ${boostDaysLeft} day${boostDaysLeft === 1 ? "" : "s"} left` : "Boost on Discover"}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-[#1A1A2E]/55">
+                {boostActive
+                  ? "Pinned to the top of the public feed. Re-boost to extend."
+                  : "Pin this post at the top of /discover for 7 days. ₦500."}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={startBoost}
+            disabled={boosting}
+            className={cn(
+              "shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all active:scale-95",
+              boostActive
+                ? "border border-[#D4A853]/40 bg-white text-[#1A1A2E]/70"
+                : "bg-gradient-to-r from-[#D4A853] to-[#c48e30] text-white shadow-md",
+              boosting && "opacity-60",
+            )}
+          >
+            {boosting ? "Redirecting…" : boostActive ? "Re-boost (₦500)" : "Boost ₦500"}
+          </button>
+        </div>
+      )}
 
       {/* Caption editor */}
       {featured && (

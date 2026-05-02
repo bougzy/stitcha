@@ -18,6 +18,8 @@ import {
   MessageCircle,
   Share2,
   Smartphone,
+  Gift,
+  Sparkles,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -141,6 +143,18 @@ function formatRelativeTime(dateStr: string) {
 /*  Scan Management Page                                                       */
 /* -------------------------------------------------------------------------- */
 
+interface ScanQuota {
+  plan: "free" | "plus" | "pro";
+  mode: "trial" | "monthly" | "unlimited";
+  canScan: boolean;
+  trialAllowed?: number;
+  trialUsed?: number;
+  trialRemaining?: number;
+  monthlyAllowed?: number;
+  monthlyUsed?: number;
+  monthlyRemaining?: number;
+}
+
 export default function ScanManagementPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [sessions, setSessions] = useState<ScanSessionData[]>([]);
@@ -151,6 +165,19 @@ export default function ScanManagementPage() {
   const [generatedSession, setGeneratedSession] = useState<GeneratedSession | null>(null);
   const [copied, setCopied] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [quota, setQuota] = useState<ScanQuota | null>(null);
+
+  /* ---- Fetch scan quota (free trial counter / monthly) ---- */
+  const fetchQuota = useCallback(async () => {
+    try {
+      const res = await fetch("/api/scan/quota");
+      const json = await res.json();
+      if (json.success) setQuota(json.data);
+    } catch {
+      /* ignore — quota chip just won't render */
+    }
+  }, []);
+  useEffect(() => { fetchQuota(); }, [fetchQuota]);
 
   /* ---- Fetch clients ---- */
   useEffect(() => {
@@ -224,6 +251,7 @@ export default function ScanManagementPage() {
       setGeneratedSession(json.data);
       toast.success(quickScan ? "Quick scan link generated!" : "Scan link generated!");
       fetchSessions();
+      fetchQuota();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to generate scan link");
     } finally {
@@ -294,11 +322,14 @@ export default function ScanManagementPage() {
         className="mx-auto w-full max-w-4xl space-y-6 px-4 py-6 sm:px-6"
       >
         {/* ---- Header ---- */}
-        <motion.div variants={itemVariants}>
-          <h1 className="text-2xl font-bold text-[#1A1A2E]">AI Body Scan</h1>
-          <p className="mt-1 text-sm text-[#1A1A2E]/55">
-            Generate scan links for clients to capture their body measurements with AI
-          </p>
+        <motion.div variants={itemVariants} className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-[#1A1A2E]">AI Body Scan</h1>
+            <p className="mt-1 text-sm text-[#1A1A2E]/55">
+              Generate scan links for clients to capture their body measurements with AI
+            </p>
+          </div>
+          {quota && <QuotaChip quota={quota} />}
         </motion.div>
 
         {/* ---- Generate Scan Link Section ---- */}
@@ -720,5 +751,64 @@ export default function ScanManagementPage() {
         )}
       </motion.div>
     </PageTransition>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  QuotaChip — pill that shows "X trial scans left" / "X / 20 this month"    */
+/*  / "Unlimited", with an Upgrade link when the trial is exhausted.          */
+/* -------------------------------------------------------------------------- */
+
+function QuotaChip({ quota }: { quota: ScanQuota }) {
+  if (quota.mode === "unlimited") {
+    return (
+      <span className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#D4A853]/25 bg-gradient-to-r from-[#D4A853]/[0.08] to-[#C75B39]/[0.08] px-3 text-xs font-semibold text-[#1A1A2E]">
+        <Sparkles className="h-3.5 w-3.5 text-[#D4A853]" />
+        Unlimited AI scans
+      </span>
+    );
+  }
+
+  if (quota.mode === "monthly") {
+    const used = quota.monthlyUsed ?? 0;
+    const max = quota.monthlyAllowed ?? 0;
+    const out = !quota.canScan;
+    return (
+      <span
+        className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold ${
+          out
+            ? "border-red-300/60 bg-red-50/60 text-red-700"
+            : "border-[#1A1A2E]/10 bg-white/40 text-[#1A1A2E]/70"
+        }`}
+      >
+        <ScanLine className="h-3.5 w-3.5" />
+        {used} / {max} scans this month
+      </span>
+    );
+  }
+
+  // Free trial mode
+  const remaining = quota.trialRemaining ?? 0;
+  const used = quota.trialUsed ?? 0;
+  const allowed = quota.trialAllowed ?? 0;
+
+  if (quota.canScan) {
+    return (
+      <div className="inline-flex h-9 items-center gap-1.5 rounded-full border border-emerald-300/40 bg-gradient-to-r from-emerald-50/60 to-[#D4A853]/[0.05] px-3 text-xs font-semibold text-emerald-700">
+        <Gift className="h-3.5 w-3.5" />
+        {remaining} free trial scan{remaining === 1 ? "" : "s"} left
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href="/billing"
+      className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-3 text-xs font-semibold text-white shadow-md transition-transform active:scale-95"
+      title={`${used} / ${allowed} trial scans used — upgrade to keep scanning`}
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+      Trial used — Upgrade
+    </a>
   );
 }

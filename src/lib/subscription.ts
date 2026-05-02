@@ -5,7 +5,7 @@ import type { DesignerRole } from "@/types";
 /*  Subscription enforcement helpers                                           */
 /*                                                                             */
 /*  Plan IDs: "free" | "plus" | "pro"                                         */
-/*  Free  — unlimited clients & orders, NO AI scans                           */
+/*  Free  — unlimited clients & orders + 2 LIFETIME trial AI scans            */
 /*  Plus  — 20 AI scans/month                                                 */
 /*  Pro   — unlimited AI scans, public profile, team                          */
 /* -------------------------------------------------------------------------- */
@@ -45,11 +45,20 @@ export function checkSubscriptionLimit(
 
     case "create_scan":
     case "use_ai_scan": {
-      // Free plan has no AI scans at all
+      // Free plan: 2 lifetime trial scans, then upgrade or buy credits
       if (planId === "free") {
+        const used = lifetimeCount ?? 0;
+        const trial = plan.scanLimit; // 2
+        if (used < trial) {
+          const remaining = trial - used;
+          return {
+            allowed: true,
+            message: `${remaining} free trial scan${remaining === 1 ? "" : "s"} remaining`,
+          };
+        }
         return {
           allowed: false,
-          message: `AI body scanning is available on the Plus plan (₦1,500/month) or via pay-per-scan credits (₦150 per scan). You can still use the guided tape measure entry for free.`,
+          message: `You've used your ${trial} free trial scans. Upgrade to Plus (₦1,500/month, 20 scans) or buy pay-per-scan credits at ₦150 each. You can still use the guided tape measure for free.`,
         };
       }
       // Unlimited scans on Pro

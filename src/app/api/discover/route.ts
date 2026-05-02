@@ -68,11 +68,44 @@ export async function GET(request: Request) {
 
     orderFilter.designerId = { $in: Array.from(designerMap.keys()) };
 
-    const orders = await Order.find(orderFilter)
-      .select("title description garmentType gallery feedCaption featuredAt designerId feedLikes createdAt")
-      .sort({ featuredAt: -1, createdAt: -1 })
-      .limit(limit + 1)
-      .lean();
+    // Boosted posts (paid, time-limited pin) outrank organic featured posts.
+    // Mongoose can't sort by "is boostedUntil > now ?" directly, so we use
+    // an aggregation that adds a synthetic isBoosted flag.
+    const now = new Date();
+    const orders = await Order.aggregate([
+      { $match: orderFilter },
+      {
+        $addFields: {
+          isBoosted: {
+            $cond: [
+              { $and: [
+                { $ifNull: ["$boostedUntil", false] },
+                { $gt: ["$boostedUntil", now] },
+              ] },
+              1,
+              0,
+            ],
+          },
+        },
+      },
+      { $sort: { isBoosted: -1, featuredAt: -1, createdAt: -1 } },
+      { $limit: limit + 1 },
+      {
+        $project: {
+          title: 1,
+          description: 1,
+          garmentType: 1,
+          gallery: 1,
+          feedCaption: 1,
+          featuredAt: 1,
+          designerId: 1,
+          feedLikes: 1,
+          boostedUntil: 1,
+          isBoosted: 1,
+          createdAt: 1,
+        },
+      },
+    ]);
 
     const hasMore = orders.length > limit;
     const slice = hasMore ? orders.slice(0, limit) : orders;
@@ -101,6 +134,7 @@ export async function GET(request: Request) {
         featuredAt: o.featuredAt ?? o.createdAt,
         likeCount: (o.feedLikes as number) ?? 0,
         likedByMe: likedSet.has(String(o._id)),
+        boosted: !!o.isBoosted,
         designer: d
           ? {
               id: String(d._id),

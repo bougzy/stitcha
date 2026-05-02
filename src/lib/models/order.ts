@@ -47,6 +47,10 @@ export interface IOrder extends Document {
   feedLikeMilestones?: number[];
   /** Times this post has appeared in a Discover feed response (rough impressions). */
   feedImpressions?: number;
+  /** Paid Discover boost — pinned to the top until this date. */
+  boostedUntil?: Date;
+  /** Lifetime number of boosts purchased on this post (analytics). */
+  boostCount?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -98,6 +102,8 @@ const OrderSchema = new Schema<IOrder>(
     feedLikes: { type: Number, default: 0, min: 0 },
     feedLikeMilestones: { type: [Number], default: [] },
     feedImpressions: { type: Number, default: 0, min: 0 },
+    boostedUntil: { type: Date, index: true },
+    boostCount: { type: Number, default: 0, min: 0 },
     statusHistory: [
       {
         status: { type: String, required: true },

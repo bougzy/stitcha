@@ -120,6 +120,16 @@ export interface IDesigner extends Document {
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
   publicProfile: boolean;
+  /** SMS credit balance (consumed per SMS sent via Termii). */
+  smsBalance?: number;
+  smsLifetimePurchased?: number;
+  /** Studio addon — branded PDFs, brand color, vanity URL. */
+  studioAddon?: {
+    expiresAt?: Date;
+    brandColor?: string;
+    logoUrl?: string;
+    customSlug?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -162,6 +172,14 @@ const DesignerSchema = new Schema<IDesigner>(
     resetPasswordToken:   { type: String },
     resetPasswordExpires: { type: Date },
     publicProfile:        { type: Boolean, default: false },
+    smsBalance:           { type: Number, default: 0, min: 0 },
+    smsLifetimePurchased: { type: Number, default: 0, min: 0 },
+    studioAddon: {
+      expiresAt:  { type: Date },
+      brandColor: { type: String, default: "#C75B39" },
+      logoUrl:    { type: String },
+      customSlug: { type: String, index: true, sparse: true },
+    },
   },
   {
     timestamps: true,

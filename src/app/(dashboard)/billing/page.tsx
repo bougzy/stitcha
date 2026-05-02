@@ -11,13 +11,22 @@ import {
   ScanLine,
   Crown,
   ArrowRight,
+  Send,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
 import { SectionLoader } from "@/components/common/loading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { SUBSCRIPTION_PLANS, CREDIT_PACKS, SCAN_CREDIT_PRICE } from "@/lib/constants";
+import {
+  SUBSCRIPTION_PLANS,
+  CREDIT_PACKS,
+  SCAN_CREDIT_PRICE,
+  SMS_PACKS,
+  STUDIO_ADDON,
+} from "@/lib/constants";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { Designer } from "@/types";
 
@@ -303,7 +312,303 @@ export default function BillingPage() {
           </GlassCard>
         </motion.div>
 
+        {/* SMS pack */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <SmsPackCard />
+        </motion.div>
+
+        {/* Studio addon */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <StudioAddonCard />
+        </motion.div>
+
       </div>
     </PageTransition>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  SmsPackCard — buy SMS credits (Termii passthrough)                        */
+/* -------------------------------------------------------------------------- */
+
+function SmsPackCard() {
+  const [balance, setBalance] = useState<number>(0);
+  const [lifetime, setLifetime] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [buying, setBuying] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sms/buy");
+      const json = await res.json();
+      if (json.success) {
+        setBalance(json.data.balance);
+        setLifetime(json.data.lifetimePurchased);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function buy(packId: string) {
+    setBuying(packId);
+    try {
+      const res = await fetch("/api/sms/buy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packId }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Failed");
+      window.location.href = json.data.authorizationUrl;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+      setBuying(null);
+    }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#25D366]/15 to-[#128C7E]/15">
+          <Send className="h-5 w-5 text-[#128C7E]" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-[#1A1A2E]">SMS credits</h2>
+          <p className="mt-0.5 text-xs text-[#1A1A2E]/55">
+            For clients who don&apos;t use WhatsApp. Pay only for what you send.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[#1A1A2E]/8 bg-white/40 px-3 py-2 text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/45">Balance</p>
+          <p className="text-lg font-bold text-[#1A1A2E]">
+            {loading ? <Loader2 className="inline h-4 w-4 animate-spin" /> : balance.toLocaleString("en-NG")}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {SMS_PACKS.map((pack) => (
+          <div
+            key={pack.id}
+            className="flex flex-col rounded-2xl border border-[#1A1A2E]/8 bg-white/40 p-4"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-[#1A1A2E]">{pack.label}</p>
+              {"badge" in pack && pack.badge && (
+                <Badge variant="secondary" className="text-[10px]">{pack.badge}</Badge>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-[#1A1A2E]/55">{pack.count} SMS</p>
+            <p className="mt-3 text-xl font-bold text-[#1A1A2E]">{formatCurrency(pack.price)}</p>
+            <p className="text-[10px] text-[#1A1A2E]/40">
+              ≈ ₦{(pack.price / pack.count).toFixed(1)} per SMS
+            </p>
+            <Button
+              onClick={() => buy(pack.id)}
+              disabled={buying !== null}
+              className="mt-3"
+              size="sm"
+            >
+              {buying === pack.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buy"}
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      {lifetime > 0 && (
+        <p className="mt-3 text-[11px] text-[#1A1A2E]/40">
+          Lifetime purchased: {lifetime.toLocaleString("en-NG")} SMS
+        </p>
+      )}
+    </GlassCard>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  StudioAddonCard — branded PDFs, custom shop URL, brand color              */
+/* -------------------------------------------------------------------------- */
+
+function StudioAddonCard() {
+  const [data, setData] = useState<{
+    active: boolean;
+    expiresAt: string | null;
+    brandColor: string;
+    customSlug: string | null;
+    logoUrl: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activating, setActivating] = useState(false);
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [colorDraft, setColorDraft] = useState("#C75B39");
+  const [slugDraft, setSlugDraft] = useState("");
+  const [logoDraft, setLogoDraft] = useState("");
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/billing/studio");
+      const json = await res.json();
+      if (json.success) {
+        setData(json.data);
+        setColorDraft(json.data.brandColor || "#C75B39");
+        setSlugDraft(json.data.customSlug || "");
+        setLogoDraft(json.data.logoUrl || "");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function activate() {
+    setActivating(true);
+    try {
+      const res = await fetch("/api/billing/studio", { method: "POST" });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Failed");
+      window.location.href = json.data.authorizationUrl;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+      setActivating(false);
+    }
+  }
+
+  async function savePrefs() {
+    setSavingPrefs(true);
+    try {
+      const res = await fetch("/api/billing/studio", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandColor: colorDraft,
+          customSlug: slugDraft || undefined,
+          logoUrl: logoDraft || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Failed");
+      toast.success("Studio preferences saved");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSavingPrefs(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <GlassCard padding="lg">
+        <Loader2 className="h-5 w-5 animate-spin text-[#1A1A2E]/40" />
+      </GlassCard>
+    );
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-md"
+          style={{
+            background: `linear-gradient(135deg, ${data?.brandColor || "#C75B39"}, #D4A853)`,
+          }}
+        >
+          <Sparkles className="h-5 w-5" />
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-[#1A1A2E]">{STUDIO_ADDON.name}</h2>
+            {data?.active && (
+              <Badge variant="success" className="text-[10px]">Active</Badge>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-[#1A1A2E]/55">
+            Your brand on every PDF, receipt and shareable. {formatCurrency(STUDIO_ADDON.price)} / month.
+          </p>
+          {data?.active && data.expiresAt && (
+            <p className="mt-1 text-[11px] text-emerald-700">
+              Renews / expires {new Date(data.expiresAt).toLocaleDateString("en-NG", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </p>
+          )}
+        </div>
+        {!data?.active && (
+          <Button onClick={activate} disabled={activating}>
+            {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : `Activate · ${formatCurrency(STUDIO_ADDON.price)}`}
+          </Button>
+        )}
+      </div>
+
+      {/* Feature list */}
+      <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+        {STUDIO_ADDON.features.map((f) => (
+          <li key={f} className="flex items-start gap-2 text-xs text-[#1A1A2E]/65">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+            {f}
+          </li>
+        ))}
+      </ul>
+
+      {/* Studio settings (only when active) */}
+      {data?.active && (
+        <div className="mt-5 space-y-3 rounded-xl border border-[#1A1A2E]/8 bg-white/40 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/45">
+                Brand color
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={colorDraft}
+                  onChange={(e) => setColorDraft(e.target.value)}
+                  className="h-9 w-12 cursor-pointer rounded-md border border-[#1A1A2E]/10"
+                />
+                <input
+                  type="text"
+                  value={colorDraft}
+                  onChange={(e) => setColorDraft(e.target.value)}
+                  className="glass-input flex h-9 flex-1 rounded-md px-3 font-mono text-xs uppercase focus-visible:outline-none"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/45">
+                Custom shop URL
+              </label>
+              <div className="flex h-9 items-center rounded-md border border-[#1A1A2E]/10 bg-white/60 pl-2 text-xs text-[#1A1A2E]/50">
+                stitcha.com/
+                <input
+                  type="text"
+                  value={slugDraft}
+                  onChange={(e) => setSlugDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+                  placeholder="your-shop"
+                  className="flex-1 bg-transparent px-1 text-[#1A1A2E] focus-visible:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/45">
+              Logo URL (optional, square image works best)
+            </label>
+            <input
+              type="url"
+              placeholder="https://…/logo.png"
+              value={logoDraft}
+              onChange={(e) => setLogoDraft(e.target.value)}
+              className="glass-input flex h-9 w-full rounded-md px-3 text-xs focus-visible:outline-none"
+            />
+          </div>
+          <Button onClick={savePrefs} disabled={savingPrefs} size="sm" className="ml-auto">
+            {savingPrefs ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Studio settings"}
+          </Button>
+        </div>
+      )}
+    </GlassCard>
   );
 }

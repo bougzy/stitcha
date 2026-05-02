@@ -41,9 +41,32 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "default",
     title: "Stitcha",
+    startupImage: ["/apple-touch-icon.png"],
+  },
+  // iOS uses apple-touch-icon for the Home Screen icon. Without these tags,
+  // iOS falls back to a screenshot of the page, which looks broken.
+  icons: {
+    icon: [
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+      { url: "/icons/apple-touch-icon-180.png", sizes: "180x180", type: "image/png" },
+      { url: "/icons/apple-touch-icon-167.png", sizes: "167x167", type: "image/png" },
+      { url: "/icons/apple-touch-icon-152.png", sizes: "152x152", type: "image/png" },
+      { url: "/icons/apple-touch-icon-120.png", sizes: "120x120", type: "image/png" },
+    ],
+    other: [
+      { rel: "apple-touch-icon-precomposed", url: "/apple-touch-icon-precomposed.png" },
+    ],
+    shortcut: [{ url: "/icons/icon-192x192.png", type: "image/png" }],
   },
   other: {
     "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "default",
+    "apple-mobile-web-app-title": "Stitcha",
   },
 };
 

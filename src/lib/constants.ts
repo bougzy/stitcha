@@ -162,6 +162,7 @@ export const SUBSCRIPTION_PLANS = [
     price: 0,
     currency: "NGN",
     features: [
+      "2 free AI body scans to try",
       "Unlimited clients",
       "Unlimited orders",
       "Guided tape-measure entry",
@@ -172,10 +173,11 @@ export const SUBSCRIPTION_PLANS = [
       "Offline mode",
     ],
     clientLimit: -1,
-    scanLimit: 0,
+    /** Lifetime trial scans for the Free plan. After this, upgrade or buy credits. */
+    scanLimit: 2,
     trialDays: 0,
     badge: null,
-    description: "Everything a tailor needs to run their business. Free forever.",
+    description: "Everything a tailor needs to run their business — plus 2 free AI scans to try. Free forever.",
   },
   {
     id: "plus",
@@ -219,6 +221,41 @@ export const SUBSCRIPTION_PLANS = [
 
 /** Pay-per-scan — no subscription needed. ₦150 per AI scan. */
 export const SCAN_CREDIT_PRICE = 150;
+
+/* -------------------------------------------------------------------------- */
+/*  Discover-feed Boost — pin a post to the top of /discover for N days.      */
+/* -------------------------------------------------------------------------- */
+
+export const BOOST_PRICE_NGN = 500;
+export const BOOST_DURATION_DAYS = 7;
+
+/* -------------------------------------------------------------------------- */
+/*  SMS packs (Termii passthrough — anyone can buy, no subscription needed).  */
+/* -------------------------------------------------------------------------- */
+
+export const SMS_PACKS = [
+  { id: "sms-50",  count: 50,  price: 200,  currency: "NGN", label: "Starter" },
+  { id: "sms-200", count: 200, price: 750,  currency: "NGN", label: "Studio",   badge: "Best Value" as const },
+  { id: "sms-500", count: 500, price: 1750, currency: "NGN", label: "Bulk" },
+] as const;
+
+/* -------------------------------------------------------------------------- */
+/*  Studio addon — branded PDFs, vanity URL, brand color across exports.      */
+/* -------------------------------------------------------------------------- */
+
+export const STUDIO_ADDON = {
+  id: "studio",
+  name: "Studio",
+  price: 1000,
+  currency: "NGN",
+  durationDays: 30,
+  features: [
+    "Your logo on measurement cards, invoices, receipts",
+    "Your brand color across PDFs and shareables",
+    "Custom shop URL on Discover",
+    "\"Powered by Stitcha\" footer hidden",
+  ],
+} as const;
 
 /* -------------------------------------------------------------------------- */
 /*  Credit Packs — pay-as-you-go scan credits                                 */

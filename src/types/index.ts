@@ -151,6 +151,9 @@ export interface Order {
   featuredAt?: string;
   /** Public like count from the discovery feed. */
   feedLikes?: number;
+  /** Active paid boost — pinned to the top of /discover until this date. */
+  boostedUntil?: string;
+  boostCount?: number;
   createdAt: string;
   updatedAt: string;
 }
