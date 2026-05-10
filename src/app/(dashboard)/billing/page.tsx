@@ -15,7 +15,8 @@ import {
   Sparkles,
   Loader2,
 } from "lucide-react";
-import { ManualPaymentCard } from "@/components/common/manual-payment-card";
+import { PaymentModal, type PaymentRequest } from "@/components/common/payment-modal";
+import { PendingPaymentsStrip } from "@/components/common/pending-payments-strip";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
 import { SectionLoader } from "@/components/common/loading";
@@ -34,7 +35,8 @@ import type { Designer } from "@/types";
 export default function BillingPage() {
   const [designer,  setDesigner]  = useState<Designer | null>(null);
   const [loading,   setLoading]   = useState(true);
-  const [upgrading, setUpgrading] = useState<string | null>(null);
+  const [paymentReq, setPaymentReq] = useState<PaymentRequest | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -48,28 +50,47 @@ export default function BillingPage() {
     }
   }, []);
 
-  useEffect(() => { fetchProfile(); }, [fetchProfile]);
-
-  async function handleUpgrade(planId: string) {
-    setUpgrading(planId);
+  /* Pending manual payment count — shows in the header so the designer
+   * sees their submission status at a glance. */
+  const fetchPendingCount = useCallback(async () => {
     try {
-      const res  = await fetch("/api/billing/checkout", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ planId }),
-      });
+      const res = await fetch("/api/manual-payments");
       const json = await res.json();
-      if (json.needsConfig) {
-        toast.error("Payment system not configured. Contact support.");
-        return;
+      if (json.success) {
+        setPendingCount(
+          (json.data.payments as Array<{ status: string }>).filter(
+            (p) => p.status === "pending",
+          ).length,
+        );
       }
-      if (!json.success) { toast.error(json.error || "Failed to initiate checkout"); return; }
-      window.location.href = json.data.authorizationUrl;
-    } catch {
-      toast.error("Failed to connect to payment system");
-    } finally {
-      setUpgrading(null);
-    }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+    fetchPendingCount();
+  }, [fetchProfile, fetchPendingCount]);
+
+  /* Trigger the unified payment modal for any billable feature. */
+  function startPayment(req: PaymentRequest) {
+    setPaymentReq(req);
+  }
+
+  function closePayment() {
+    setPaymentReq(null);
+    fetchPendingCount();
+  }
+
+  function handleUpgrade(planId: string) {
+    const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId);
+    if (!plan || plan.price === 0) return;
+    startPayment({
+      purpose: "subscription",
+      amount: plan.price,
+      payload: { planId: planId as "plus" | "pro" },
+      title: `${plan.name} plan — 30 days`,
+      description: plan.description,
+    });
   }
 
   if (loading) return <SectionLoader />;
@@ -106,6 +127,10 @@ export default function BillingPage() {
           </h1>
           <p className="mt-1 text-sm text-[#1A1A2E]/50">
             Stitcha is free forever for the essentials. Upgrade only when you need AI scanning.
+          </p>
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-emerald-50/70 px-2 py-1 text-[11px] font-medium text-emerald-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            Bank transfer is the only payment method right now — admin verifies within minutes.
           </p>
         </motion.div>
 
@@ -248,7 +273,6 @@ export default function BillingPage() {
                     <Button
                       className="w-full"
                       onClick={() => handleUpgrade(plan.id)}
-                      loading={upgrading === plan.id}
                     >
                       Upgrade to {plan.name}
                       <ArrowRight className="h-4 w-4" />
@@ -289,12 +313,9 @@ export default function BillingPage() {
               {CREDIT_PACKS.map((pack) => (
                 <button
                   key={pack.id}
-                  onClick={() => handleUpgrade(pack.id)}
-                  disabled={!!upgrading}
-                  className={cn(
-                    "rounded-xl border border-[#1A1A2E]/8 bg-white/40 p-3 text-center transition-all hover:border-[#C75B39]/30 hover:bg-white/60",
-                    upgrading === pack.id && "opacity-70"
-                  )}
+                  onClick={() => handleUpgrade("plus")}
+                  className="rounded-xl border border-[#1A1A2E]/8 bg-white/40 p-3 text-center transition-all hover:border-[#C75B39]/30 hover:bg-white/60"
+                  title="Pay-per-scan packs are routed to the Plus plan upgrade for now."
                 >
                   <p className="text-lg font-bold text-[#1A1A2E]">{pack.scans}</p>
                   <p className="text-[10px] text-[#1A1A2E]/40">scans</p>
@@ -358,9 +379,8 @@ export default function BillingPage() {
                 <Button
                   className="w-full"
                   onClick={() => handleUpgrade("plus")}
-                  loading={upgrading === "plus"}
                 >
-                  Start 14-day free trial — Plus plan
+                  Upgrade to Plus
                   <ArrowRight className="h-4 w-4" />
                 </Button>
                 <p className="mt-2 text-center text-xs text-[#1A1A2E]/35">
@@ -371,22 +391,34 @@ export default function BillingPage() {
           </GlassCard>
         </motion.div>
 
-        {/* Manual / bank-transfer payment */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
-          <ManualPaymentCard />
-        </motion.div>
+        {/* Pending submissions strip — appears only when there are open ones */}
+        {pendingCount > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
+            <PendingPaymentsStrip
+              count={pendingCount}
+              onChange={fetchPendingCount}
+            />
+          </motion.div>
+        )}
 
         {/* SMS pack */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <SmsPackCard />
+          <SmsPackCard onStartPayment={startPayment} />
         </motion.div>
 
         {/* Studio addon */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <StudioAddonCard />
+          <StudioAddonCard onStartPayment={startPayment} />
         </motion.div>
 
       </div>
+
+      {/* Unified payment modal — every "buy / upgrade / activate" button opens this */}
+      <PaymentModal
+        open={paymentReq !== null}
+        request={paymentReq}
+        onClose={closePayment}
+      />
     </PageTransition>
   );
 }
@@ -395,11 +427,10 @@ export default function BillingPage() {
 /*  SmsPackCard — buy SMS credits (Termii passthrough)                        */
 /* -------------------------------------------------------------------------- */
 
-function SmsPackCard() {
+function SmsPackCard({ onStartPayment }: { onStartPayment: (req: PaymentRequest) => void }) {
   const [balance, setBalance] = useState<number>(0);
   const [lifetime, setLifetime] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [buying, setBuying] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -415,21 +446,16 @@ function SmsPackCard() {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function buy(packId: string) {
-    setBuying(packId);
-    try {
-      const res = await fetch("/api/sms/buy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Failed");
-      window.location.href = json.data.authorizationUrl;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-      setBuying(null);
-    }
+  function buy(packId: string) {
+    const pack = SMS_PACKS.find((p) => p.id === packId);
+    if (!pack) return;
+    onStartPayment({
+      purpose: "sms_pack",
+      amount: pack.price,
+      payload: { packId: pack.id },
+      title: `${pack.count} SMS credits — ${pack.label}`,
+      description: `≈ ₦${(pack.price / pack.count).toFixed(1)} per SMS · added to your account on verification.`,
+    });
   }
 
   return (
@@ -471,11 +497,10 @@ function SmsPackCard() {
             </p>
             <Button
               onClick={() => buy(pack.id)}
-              disabled={buying !== null}
               className="mt-3"
               size="sm"
             >
-              {buying === pack.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buy"}
+              Buy
             </Button>
           </div>
         ))}
@@ -494,7 +519,7 @@ function SmsPackCard() {
 /*  StudioAddonCard — branded PDFs, custom shop URL, brand color              */
 /* -------------------------------------------------------------------------- */
 
-function StudioAddonCard() {
+function StudioAddonCard({ onStartPayment }: { onStartPayment: (req: PaymentRequest) => void }) {
   const [data, setData] = useState<{
     active: boolean;
     expiresAt: string | null;
@@ -503,7 +528,6 @@ function StudioAddonCard() {
     logoUrl: string | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activating, setActivating] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [colorDraft, setColorDraft] = useState("#C75B39");
   const [slugDraft, setSlugDraft] = useState("");
@@ -525,17 +549,14 @@ function StudioAddonCard() {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function activate() {
-    setActivating(true);
-    try {
-      const res = await fetch("/api/billing/studio", { method: "POST" });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Failed");
-      window.location.href = json.data.authorizationUrl;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-      setActivating(false);
-    }
+  function activate() {
+    onStartPayment({
+      purpose: "studio_addon",
+      amount: STUDIO_ADDON.price,
+      payload: { durationDays: STUDIO_ADDON.durationDays },
+      title: `${STUDIO_ADDON.name} addon — ${STUDIO_ADDON.durationDays} days`,
+      description: "Branded PDFs, custom shop URL, brand colour across exports.",
+    });
   }
 
   async function savePrefs() {
@@ -601,8 +622,8 @@ function StudioAddonCard() {
           )}
         </div>
         {!data?.active && (
-          <Button onClick={activate} disabled={activating}>
-            {activating ? <Loader2 className="h-4 w-4 animate-spin" /> : `Activate · ${formatCurrency(STUDIO_ADDON.price)}`}
+          <Button onClick={activate}>
+            {`Activate · ${formatCurrency(STUDIO_ADDON.price)}`}
           </Button>
         )}
       </div>

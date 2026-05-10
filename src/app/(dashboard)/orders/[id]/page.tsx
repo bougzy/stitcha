@@ -33,7 +33,6 @@ import {
   Sparkles,
   Globe,
   Heart,
-  Copy,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -56,7 +55,8 @@ import {
 import { StatusProgress } from "@/components/orders/status-progress";
 import { OrderTimeline } from "@/components/orders/order-timeline";
 import { WhatsAppActions } from "@/components/common/whatsapp-actions";
-import { ORDER_STATUSES, MEASUREMENT_TYPES, BANK_DETAILS, BOOST_PRICE_NGN } from "@/lib/constants";
+import { ORDER_STATUSES, MEASUREMENT_TYPES, BOOST_PRICE_NGN } from "@/lib/constants";
+import { PaymentModal } from "@/components/common/payment-modal";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { whatsapp, type MessageLanguage } from "@/lib/whatsapp";
 import type { Order, OrderStatus, Measurements, Payment, PaymentMethod } from "@/types";
@@ -1569,52 +1569,15 @@ function FeatureOnFeedCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(caption);
   const [saving, setSaving] = useState(false);
-  const [boosting, setBoosting] = useState(false);
-  const [boostBankOpen, setBoostBankOpen] = useState(false);
-  const [boostBankSubmitting, setBoostBankSubmitting] = useState(false);
-  const [boostManualReference, setBoostManualReference] = useState<string | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
   const boostActive = !!boostedUntil && new Date(boostedUntil) > new Date();
   const boostDaysLeft = boostActive
     ? Math.max(1, Math.ceil((new Date(boostedUntil!).getTime() - Date.now()) / 86_400_000))
     : 0;
 
-  async function startBoost() {
-    setBoosting(true);
-    try {
-      const res = await fetch(`/api/orders/${orderId}/boost`, { method: "POST" });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Boost failed");
-      // Hand off to Paystack — webhook will update boostedUntil on success.
-      window.location.href = json.data.authorizationUrl;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Boost failed");
-      setBoosting(false);
-    }
-  }
-
-  async function submitBoostBankTransfer() {
-    setBoostBankSubmitting(true);
-    try {
-      const res = await fetch("/api/manual-payments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          purpose: "boost_post",
-          amount: BOOST_PRICE_NGN,
-          payload: { orderId },
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        toast.error(json.error || "Submit failed");
-        return;
-      }
-      toast.success("Boost payment submitted — admin will activate it shortly");
-      setBoostManualReference(json.data.reference);
-    } finally {
-      setBoostBankSubmitting(false);
-    }
+  function startBoost() {
+    setPaymentOpen(true);
   }
 
   async function patch(body: Record<string, unknown>) {
@@ -1712,74 +1675,39 @@ function FeatureOnFeedCard({
               </p>
             </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1">
-            <button
-              onClick={startBoost}
-              disabled={boosting}
-              className={cn(
-                "rounded-xl px-3 py-1.5 text-xs font-semibold transition-all active:scale-95",
-                boostActive
-                  ? "border border-[#D4A853]/40 bg-white text-[#1A1A2E]/70"
-                  : "bg-gradient-to-r from-[#D4A853] to-[#c48e30] text-white shadow-md",
-                boosting && "opacity-60",
-              )}
-            >
-              {boosting ? "Redirecting…" : boostActive ? "Re-boost (₦500)" : "Boost ₦500"}
-            </button>
-            <button
-              onClick={() => setBoostBankOpen((v) => !v)}
-              className="text-[10px] font-medium text-[#1A1A2E]/45 hover:text-[#1A1A2E]/70"
-            >
-              <Banknote className="mr-0.5 inline h-3 w-3" />
-              Pay by bank transfer
-            </button>
-          </div>
+          <button
+            onClick={startBoost}
+            className={cn(
+              "shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all active:scale-95",
+              boostActive
+                ? "border border-[#D4A853]/40 bg-white text-[#1A1A2E]/70"
+                : "bg-gradient-to-r from-[#D4A853] to-[#c48e30] text-white shadow-md",
+            )}
+          >
+            {boostActive ? "Re-boost (₦500)" : "Boost ₦500"}
+          </button>
         </div>
       )}
 
-      {/* Bank-transfer boost — collapsible */}
-      {featured && boostBankOpen && (
-        <div className="mt-2 rounded-xl border border-emerald-200/50 bg-emerald-50/40 p-3 text-xs">
-          <p className="font-semibold text-[#1A1A2E]">
-            Send ₦{BOOST_PRICE_NGN} to:
-          </p>
-          <p className="mt-1 text-[#1A1A2E]/75">
-            <span className="font-mono">{BANK_DETAILS.bankName}</span>
-            {" · "}
-            <span className="font-mono">{BANK_DETAILS.accountNumber}</span>
-            {" · "}
-            {BANK_DETAILS.accountName}
-          </p>
-          {boostManualReference ? (
-            <div className="mt-2 rounded-md bg-white/70 p-2">
-              <p className="text-[10px] uppercase tracking-wide text-[#1A1A2E]/50">Reference</p>
-              <div className="flex items-center justify-between">
-                <p className="font-mono text-sm font-bold text-[#1A1A2E]">{boostManualReference}</p>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(boostManualReference!);
-                    toast.success("Reference copied");
-                  }}
-                  className="rounded p-1 text-[#1A1A2E]/45 hover:text-[#1A1A2E]"
-                >
-                  <Copy className="h-3 w-3" />
-                </button>
-              </div>
-              <p className="mt-1 text-[10px] text-[#1A1A2E]/55">
-                Use this reference in the bank narration. Admin will activate the boost once verified.
-              </p>
-            </div>
-          ) : (
-            <button
-              onClick={submitBoostBankTransfer}
-              disabled={boostBankSubmitting}
-              className="mt-2 w-full rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white"
-            >
-              {boostBankSubmitting ? "Submitting…" : "I've sent ₦500 — submit for verification"}
-            </button>
-          )}
-        </div>
-      )}
+      {/* Unified payment modal for boost */}
+      <PaymentModal
+        open={paymentOpen}
+        request={
+          paymentOpen
+            ? {
+                purpose: "boost_post",
+                amount: BOOST_PRICE_NGN,
+                payload: { orderId },
+                title: `Boost on Discover — 7 days`,
+                description: "Pinned to the top of /discover until verified + 7 days.",
+              }
+            : null
+        }
+        onClose={() => {
+          setPaymentOpen(false);
+          onUpdated();
+        }}
+      />
 
       {/* Caption editor */}
       {featured && (
