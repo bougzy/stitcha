@@ -120,6 +120,11 @@ export interface IDesigner extends Document {
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
   publicProfile: boolean;
+  /** Admin-toggled emergency lock. Suspended designers can still log in but
+   *  can't send broadcasts, generate scan links, or create orders. */
+  suspended?: boolean;
+  suspendedAt?: Date;
+  suspendedReason?: string;
   /** SMS credit balance (consumed per SMS sent via Termii). */
   smsBalance?: number;
   smsLifetimePurchased?: number;
@@ -172,6 +177,9 @@ const DesignerSchema = new Schema<IDesigner>(
     resetPasswordToken:   { type: String },
     resetPasswordExpires: { type: Date },
     publicProfile:        { type: Boolean, default: false },
+    suspended:            { type: Boolean, default: false, index: true },
+    suspendedAt:          { type: Date },
+    suspendedReason:      { type: String, maxlength: 500 },
     smsBalance:           { type: Number, default: 0, min: 0 },
     smsLifetimePurchased: { type: Number, default: 0, min: 0 },
     studioAddon: {

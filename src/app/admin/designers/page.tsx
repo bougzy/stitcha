@@ -153,12 +153,13 @@ export default function AdminDesignersPage() {
       ) : (
         <div className="space-y-2">
           {designers.map((d, i) => (
-            <motion.div
+            <motion.a
+              href={`/admin/designers/${d._id}`}
               key={d._id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
-              className="rounded-2xl border border-white/5 bg-white/[0.03] p-4 transition-colors hover:bg-white/[0.05]"
+              className="block rounded-2xl border border-white/5 bg-white/[0.03] p-4 transition-colors hover:border-white/10 hover:bg-white/[0.05] cursor-pointer"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 {/* Avatar & Info */}
@@ -245,7 +246,7 @@ export default function AdminDesignersPage() {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </motion.a>
           ))}
         </div>
       )}
