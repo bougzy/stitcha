@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/broadcast-tick",
-      "schedule": "* * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
