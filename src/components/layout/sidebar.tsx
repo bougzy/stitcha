@@ -17,6 +17,7 @@ import {
   Wallet,
   Compass,
   TrendingUp,
+  Megaphone,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -33,6 +34,7 @@ const navItems = [
   { label: "Style Vault", href: "/style-vault", icon: Sparkles },
   { label: "Discover", href: "/discover", icon: Compass },
   { label: "Insights", href: "/insights", icon: TrendingUp },
+  { label: "Broadcast", href: "/broadcast", icon: Megaphone },
   { label: "Heartbeat", href: "/heartbeat", icon: Heart },
   { label: "Calendar", href: "/calendar", icon: Calendar },
   { label: "Rank", href: "/rank", icon: Trophy },
