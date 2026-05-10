@@ -15,6 +15,7 @@ import {
   Sparkles,
   Loader2,
 } from "lucide-react";
+import { ManualPaymentCard } from "@/components/common/manual-payment-card";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
 import { SectionLoader } from "@/components/common/loading";
@@ -310,6 +311,11 @@ export default function BillingPage() {
               </div>
             )}
           </GlassCard>
+        </motion.div>
+
+        {/* Manual / bank-transfer payment */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
+          <ManualPaymentCard />
         </motion.div>
 
         {/* SMS pack */}

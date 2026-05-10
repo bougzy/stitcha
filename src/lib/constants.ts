@@ -243,6 +243,21 @@ export const SMS_PACKS = [
 /*  Studio addon — branded PDFs, vanity URL, brand color across exports.      */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/*  Manual bank-transfer payment details                                       */
+/*                                                                              */
+/*  Shown to designers who pick "Pay by bank transfer" instead of Paystack.   */
+/*  Override per environment via NEXT_PUBLIC_BANK_* env vars in production.   */
+/* -------------------------------------------------------------------------- */
+
+export const BANK_DETAILS = {
+  bankName:      process.env.NEXT_PUBLIC_BANK_NAME      || "Opay",
+  accountName:   process.env.NEXT_PUBLIC_BANK_ACCOUNT_NAME || "Stitcha Technologies",
+  accountNumber: process.env.NEXT_PUBLIC_BANK_NUMBER    || "8123456789",
+  /** Phone the designer can WhatsApp/SMS once they've paid. */
+  adminWhatsApp: process.env.NEXT_PUBLIC_ADMIN_WHATSAPP || "+2348012345678",
+} as const;
+
 export const STUDIO_ADDON = {
   id: "studio",
   name: "Studio",

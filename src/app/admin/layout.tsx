@@ -12,11 +12,13 @@ import {
   Menu,
   X,
   ChevronLeft,
+  Banknote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const adminNavItems = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
+  { label: "Payments", href: "/admin/payments", icon: Banknote },
   { label: "Designers", href: "/admin/designers", icon: Users },
   { label: "Activity", href: "/admin/activity", icon: Activity },
 ];
