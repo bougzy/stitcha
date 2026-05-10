@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ClientCard } from "@/components/clients/client-card";
 import { UsageBar, UpgradeModal } from "@/components/common/upgrade-modal";
+import { PaymentModal, type PaymentRequest } from "@/components/common/payment-modal";
+import { SUBSCRIPTION_PLANS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Client } from "@/types";
 
@@ -80,6 +82,7 @@ export default function ClientsPage() {
     subscription: string;
   } | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [paymentReq, setPaymentReq] = useState<PaymentRequest | null>(null);
 
   /* ---- Fetch clients ---- */
   const fetchClients = useCallback(async () => {
@@ -305,29 +308,27 @@ export default function ClientsPage() {
           limit={usage.clientLimit}
           planName={usage.planName}
           resource="clients"
-          onUpgrade={async (planId) => {
-            try {
-              const res = await fetch("/api/billing/checkout", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ planId }),
-              });
-              const json = await res.json();
-              if (json.needsConfig) {
-                toast.error("Payment not configured. Contact the administrator.");
-                return;
-              }
-              if (json.success) {
-                window.location.href = json.data.authorizationUrl;
-              } else {
-                toast.error(json.error || "Failed to start checkout");
-              }
-            } catch {
-              toast.error("Failed to connect to payment system");
-            }
+          onUpgrade={(planId) => {
+            const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId);
+            if (!plan || plan.price === 0) return;
+            setShowUpgradeModal(false);
+            setPaymentReq({
+              purpose: "subscription",
+              amount: plan.price,
+              payload: { planId: planId as "plus" | "pro" },
+              title: `${plan.name} plan — 30 days`,
+              description: plan.description,
+            });
           }}
         />
       )}
+
+      {/* Bank-transfer payment modal */}
+      <PaymentModal
+        open={paymentReq !== null}
+        request={paymentReq}
+        onClose={() => setPaymentReq(null)}
+      />
 
       {/* CSV Import Modal */}
       {showImport && (

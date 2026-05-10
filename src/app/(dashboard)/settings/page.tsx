@@ -33,6 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { NIGERIAN_STATES, SUBSCRIPTION_PLANS } from "@/lib/constants";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { Designer } from "@/types";
+import { PaymentModal, type PaymentRequest } from "@/components/common/payment-modal";
 
 /* -------------------------------------------------------------------------- */
 /*  Validation Schemas                                                         */
@@ -464,31 +465,18 @@ function BusinessTab({
     designer.specialties || []
   );
   const [isSaving, setIsSaving] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
+  const [paymentReq, setPaymentReq] = useState<PaymentRequest | null>(null);
 
-  async function handleUpgrade(planId: string) {
-    setUpgrading(true);
-    try {
-      const res = await fetch("/api/billing/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId }),
-      });
-      const json = await res.json();
-      if (json.needsConfig) {
-        toast.error("Payment system not configured. Set PAYSTACK_SECRET_KEY in environment variables.");
-        return;
-      }
-      if (!json.success) {
-        toast.error(json.error || "Failed to initiate checkout");
-        return;
-      }
-      window.location.href = json.data.authorizationUrl;
-    } catch {
-      toast.error("Failed to connect to payment system");
-    } finally {
-      setUpgrading(false);
-    }
+  function handleUpgrade(planId: string) {
+    const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId);
+    if (!plan || plan.price === 0) return;
+    setPaymentReq({
+      purpose: "subscription",
+      amount: plan.price,
+      payload: { planId: planId as "plus" | "pro" },
+      title: `${plan.name} plan — 30 days`,
+      description: plan.description,
+    });
   }
 
   function toggleSpecialty(specialty: string) {
@@ -642,7 +630,6 @@ function BusinessTab({
                   toast.info("Plan management coming soon");
                 }
               }}
-              loading={upgrading}
             >
               <Zap className="h-3.5 w-3.5" />
               {currentPlan.price === 0 ? "Upgrade" : "Manage"}
@@ -698,7 +685,6 @@ function BusinessTab({
                         size="sm"
                         className="mt-3 w-full"
                         onClick={() => handleUpgrade(plan.id)}
-                        loading={upgrading}
                       >
                         Upgrade to {plan.name}
                       </Button>
@@ -715,6 +701,13 @@ function BusinessTab({
           </div>
         </div>
       </GlassCard>
+
+      {/* Unified bank-transfer payment modal */}
+      <PaymentModal
+        open={paymentReq !== null}
+        request={paymentReq}
+        onClose={() => setPaymentReq(null)}
+      />
     </div>
   );
 }
