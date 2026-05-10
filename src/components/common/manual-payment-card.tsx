@@ -13,7 +13,7 @@
 /*  Used on /billing (subscription, sms, studio) and on order detail (boost). */
 /* -------------------------------------------------------------------------- */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -29,6 +29,8 @@ import {
   AlertTriangle,
   MessageCircle,
   RefreshCw,
+  Upload,
+  X,
 } from "lucide-react";
 import { GlassCard } from "@/components/common/glass-card";
 import { Button } from "@/components/ui/button";
@@ -85,6 +87,8 @@ export function ManualPaymentCard() {
   const [senderName, setSenderName] = useState("");
   const [senderBank, setSenderBank] = useState("");
   const [note, setNote] = useState("");
+  const [proofImage, setProofImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* Track the latest submission so we can show its reference + status */
   const [latestSubmission, setLatestSubmission] = useState<{
@@ -124,6 +128,49 @@ export function ManualPaymentCard() {
     setAmount(expected ? String(expected) : "");
   }, [expected]);
 
+  /* Handle proof-image upload — read file, downscale to max 1280px, base64 */
+  async function handleProofUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please upload an image file (JPG, PNG, HEIC).");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is too large (5 MB max).");
+      return;
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      // Downscale via canvas for quick upload
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((res) => { img.onload = res; });
+      const maxDim = 1280;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setProofImage(dataUrl);
+      } else {
+        ctx.drawImage(img, 0, 0, w, h);
+        setProofImage(canvas.toDataURL("image/jpeg", 0.85));
+      }
+      e.target.value = "";
+    } catch {
+      toast.error("Couldn't read that image.");
+    }
+  }
+
   async function submit() {
     const amt = Number(amount);
     if (!isFinite(amt) || amt <= 0) {
@@ -146,6 +193,7 @@ export function ManualPaymentCard() {
           senderName: senderName.trim() || undefined,
           senderBank: senderBank.trim() || undefined,
           designerNote: note.trim() || undefined,
+          proofImage: proofImage || undefined,
         }),
       });
       const json = await res.json();
@@ -162,6 +210,7 @@ export function ManualPaymentCard() {
       setSenderName("");
       setSenderBank("");
       setNote("");
+      setProofImage(null);
       refresh();
     } finally {
       setSubmitting(false);
@@ -351,6 +400,47 @@ export function ManualPaymentCard() {
                   className="glass-input flex h-10 w-full rounded-md px-3 text-sm focus-visible:outline-none"
                 />
               </div>
+            </div>
+
+            {/* Proof image upload */}
+            <div className="mt-3">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/45">
+                Bank receipt screenshot (optional but speeds up verification)
+              </label>
+              {proofImage ? (
+                <div className="relative inline-block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={proofImage}
+                    alt="Payment proof"
+                    className="h-32 w-auto rounded-lg border border-emerald-200/40 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setProofImage(null)}
+                    className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white shadow-md"
+                    aria-label="Remove image"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#1A1A2E]/15 bg-white/30 text-xs font-medium text-[#1A1A2E]/55 transition-colors hover:border-[#C75B39]/30 hover:bg-white/50"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload receipt or transfer screenshot
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleProofUpload}
+              />
             </div>
 
             <Button

@@ -8,6 +8,8 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  Search,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,12 +42,23 @@ export default function AdminActivityPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [entityFilter, setEntityFilter] = useState("");
+  const [actionFilter, setActionFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  /* Debounce search */
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(search), 350);
+    return () => window.clearTimeout(t);
+  }, [search]);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "30" });
       if (entityFilter) params.set("entity", entityFilter);
+      if (actionFilter) params.set("action", actionFilter);
+      if (debouncedSearch) params.set("search", debouncedSearch);
       const res = await fetch(`/api/admin/activity?${params}`);
       const json = await res.json();
       if (json.success) {
@@ -57,7 +70,7 @@ export default function AdminActivityPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, entityFilter]);
+  }, [page, entityFilter, actionFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchLogs();
@@ -77,28 +90,81 @@ export default function AdminActivityPage() {
         </p>
       </div>
 
-      {/* Entity filter */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Filter className="h-4 w-4 text-white/30" />
-        {["", "client", "order", "payment", "measurement", "settings"].map(
-          (e) => (
+      {/* Filters */}
+      <div className="space-y-3">
+        {/* Search */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Search activity details (e.g. 'plus', 'reference', designer name)"
+            className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-10 pr-9 text-sm text-white placeholder:text-white/25 focus:border-[#C75B39]/40 focus:outline-none"
+          />
+          {search && (
             <button
-              key={e}
-              onClick={() => {
-                setEntityFilter(e);
-                setPage(1);
-              }}
+              onClick={() => { setSearch(""); setPage(1); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-white/40 hover:text-white"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Entity filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Filter className="h-4 w-4 text-white/30" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/35">Entity</span>
+          {["", "client", "order", "payment", "measurement", "settings"].map(
+            (e) => (
+              <button
+                key={e}
+                onClick={() => {
+                  setEntityFilter(e);
+                  setPage(1);
+                }}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                  entityFilter === e
+                    ? "bg-[#C75B39] text-white"
+                    : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                )}
+              >
+                {e === "" ? "All" : e.charAt(0).toUpperCase() + e.slice(1)}
+              </button>
+            )
+          )}
+        </div>
+
+        {/* Action filter — common categories */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/35">Action</span>
+          {[
+            { id: "", label: "All" },
+            { id: "admin_", label: "Admin actions" },
+            { id: "buy_", label: "Purchases" },
+            { id: "boost_", label: "Boosts" },
+            { id: "upgrade_", label: "Upgrades" },
+            { id: "create_", label: "Creates" },
+            { id: "update_", label: "Updates" },
+            { id: "delete_", label: "Deletes" },
+          ].map((a) => (
+            <button
+              key={a.id}
+              onClick={() => { setActionFilter(a.id); setPage(1); }}
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                entityFilter === e
+                actionFilter === a.id
                   ? "bg-[#C75B39] text-white"
                   : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
               )}
             >
-              {e === "" ? "All" : e.charAt(0).toUpperCase() + e.slice(1)}
+              {a.label}
             </button>
-          )
-        )}
+          ))}
+        </div>
       </div>
 
       {/* Activity List */}

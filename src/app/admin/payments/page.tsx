@@ -354,6 +354,28 @@ function PaymentRow({
             </div>
           )}
 
+          {p.proofImage && (
+            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                Proof of payment
+              </p>
+              <button
+                type="button"
+                onClick={() => window.open(p.proofImage, "_blank", "noopener,noreferrer")}
+                className="mt-2 block"
+                title="Click to enlarge"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={p.proofImage}
+                  alt="Bank receipt screenshot"
+                  className="h-32 w-auto rounded-md border border-emerald-500/30 object-cover transition-transform hover:scale-[1.02]"
+                />
+              </button>
+              <p className="mt-1 text-[10px] text-white/40">Click to open full-size in a new tab.</p>
+            </div>
+          )}
+
           {p.adminNote && (
             <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2">
               <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-red-300">

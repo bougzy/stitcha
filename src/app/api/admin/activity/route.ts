@@ -17,11 +17,15 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "30"), 100);
     const entity = searchParams.get("entity") || "";
     const designerId = searchParams.get("designerId") || "";
+    const action = searchParams.get("action") || "";
+    const search = searchParams.get("search") || "";
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = {};
     if (entity) filter.entity = entity;
     if (designerId) filter.designerId = designerId;
+    if (action) filter.action = { $regex: action, $options: "i" };
+    if (search.trim()) filter.details = { $regex: search.trim(), $options: "i" };
 
     const [logs, total] = await Promise.all([
       ActivityLog.find(filter)

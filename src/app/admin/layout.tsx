@@ -16,18 +16,20 @@ import {
   Package,
   Compass,
   Megaphone,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdminNotificationBell } from "@/components/admin/admin-notification-bell";
 
 const adminNavItems = [
-  { label: "Overview",   href: "/admin",           icon: LayoutDashboard },
-  { label: "Payments",   href: "/admin/payments",  icon: Banknote },
-  { label: "Designers",  href: "/admin/designers", icon: Users },
-  { label: "Orders",     href: "/admin/orders",    icon: Package },
-  { label: "Discover",   href: "/admin/discover",  icon: Compass },
-  { label: "Announce",   href: "/admin/announce",  icon: Megaphone },
-  { label: "Activity",   href: "/admin/activity",  icon: Activity },
+  { label: "Overview",   href: "/admin",            icon: LayoutDashboard },
+  { label: "Analytics",  href: "/admin/analytics",  icon: TrendingUp },
+  { label: "Payments",   href: "/admin/payments",   icon: Banknote },
+  { label: "Designers",  href: "/admin/designers",  icon: Users },
+  { label: "Orders",     href: "/admin/orders",     icon: Package },
+  { label: "Discover",   href: "/admin/discover",   icon: Compass },
+  { label: "Announce",   href: "/admin/announce",   icon: Megaphone },
+  { label: "Activity",   href: "/admin/activity",   icon: Activity },
 ];
 
 export default function AdminLayout({
