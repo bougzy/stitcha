@@ -6,6 +6,7 @@ import connectDB from "@/lib/db";
 import { Designer } from "@/lib/models/designer";
 import { Client } from "@/lib/models/client";
 import { Outreach } from "@/lib/models/outreach";
+import { BroadcastJob } from "@/lib/models/broadcast-job";
 import { sendSMS } from "@/lib/sms";
 
 /* -------------------------------------------------------------------------- */
@@ -35,9 +36,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       recipientIds?: string[];
       message?: string;
+      segment?: string;
+      language?: "english" | "pidgin";
     };
     const recipientIds = Array.isArray(body.recipientIds) ? body.recipientIds : [];
     const message = (body.message || "").trim();
+    const segment = (body.segment || "all").trim();
+    const language = body.language === "pidgin" ? "pidgin" : "english";
 
     if (recipientIds.length === 0) {
       return NextResponse.json({ success: false, error: "No recipients" }, { status: 400 });
@@ -92,15 +97,36 @@ export async function POST(request: Request) {
       );
     }
 
+    /* History row — created up front so the job lifecycle is observable */
+    const job = await BroadcastJob.create({
+      designerId: userId,
+      segment,
+      message,
+      language,
+      channel: "sms",
+      scheduledFor: null,
+      status: "running",
+      startedAt: new Date(),
+      recipients: clients.map((c) => {
+        const cc = c as unknown as { _id: Types.ObjectId; name?: string; phone?: string };
+        return {
+          clientId: cc._id,
+          name: cc.name || "",
+          phone: cc.phone || "",
+        };
+      }),
+      recipientCount: clients.length,
+    });
+
     /* Send one at a time so we can refund on individual failures */
-    const errors: { clientId: string; error: string }[] = [];
+    const errorList: { clientId: Types.ObjectId; error: string }[] = [];
     let sent = 0;
 
     for (const c of clients) {
-      const cc = c as Record<string, unknown>;
-      const name = (cc.name as string) || "";
+      const cc = c as unknown as { _id: Types.ObjectId; name?: string; phone?: string };
+      const name = cc.name || "";
       const firstName = name.split(" ")[0] || name;
-      const phone = (cc.phone as string) || "";
+      const phone = cc.phone || "";
 
       // Per-recipient template substitution
       const personal = message
@@ -118,8 +144,8 @@ export async function POST(request: Request) {
           message: personal.slice(0, 280),
         }).catch(() => { /* ignore */ });
       } else {
-        errors.push({
-          clientId: String(cc._id),
+        errorList.push({
+          clientId: cc._id as Types.ObjectId,
           error: result.error || "Send failed",
         });
       }
@@ -131,8 +157,17 @@ export async function POST(request: Request) {
       await Designer.updateOne({ _id: userId }, { $inc: { smsBalance: failed } });
     }
 
+    /* Close out the history row */
+    await BroadcastJob.findByIdAndUpdate(job._id, {
+      status: "complete",
+      sentCount: sent,
+      failedCount: failed,
+      errorList,
+      completedAt: new Date(),
+    });
+
     const after = await Designer.findById(userId).select("smsBalance").lean();
-    const remaining = ((after as Record<string, unknown> | null)?.smsBalance as number) ?? 0;
+    const remaining = ((after as unknown as Record<string, unknown> | null)?.smsBalance as number) ?? 0;
 
     return NextResponse.json({
       success: true,
@@ -140,7 +175,8 @@ export async function POST(request: Request) {
         sent,
         failed,
         remainingBalance: remaining,
-        errors,
+        errors: errorList.map((e) => ({ clientId: String(e.clientId), error: e.error })),
+        jobId: String(job._id),
       },
     });
   } catch (err) {

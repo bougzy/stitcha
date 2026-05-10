@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -28,13 +29,14 @@ import {
   MessageCircle,
   Send,
   ChevronRight,
-  Check,
   ExternalLink,
   Loader2,
   ArrowLeft,
   X,
   CheckCircle2,
   Languages,
+  Calendar,
+  History as HistoryIcon,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -49,7 +51,8 @@ interface Recipient {
 
 type Segment = "all" | "debtors" | "dormant" | "no-measure" | "vip" | "loyal" | "new" | "female" | "male";
 type Channel = "whatsapp" | "sms";
-type Step = "segment" | "compose" | "channel" | "send-wa" | "send-sms" | "done";
+type Timing = "now" | "later";
+type Step = "segment" | "compose" | "channel" | "send-wa" | "send-sms" | "scheduled" | "done";
 
 const SEGMENTS: { id: Segment; label: string; description: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "all",        label: "All clients",       description: "Everyone in your address book",         icon: Users },
@@ -115,6 +118,9 @@ function personalise(message: string, name: string): string {
 /* -------------------------------------------------------------------------- */
 
 export default function BroadcastPage() {
+  const searchParams = useSearchParams();
+  const resumeJobId = searchParams.get("resume");
+
   const [step, setStep] = useState<Step>("segment");
   const [segment, setSegment] = useState<Segment>("all");
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -122,11 +128,16 @@ export default function BroadcastPage() {
   const [message, setMessage] = useState("");
   const [lang, setLang] = useState<"english" | "pidgin">("english");
   const [channel, setChannel] = useState<Channel>("whatsapp");
+  const [timing, setTiming] = useState<Timing>("now");
+  const [scheduledAt, setScheduledAt] = useState<string>(""); // datetime-local string
   const [smsBalance, setSmsBalance] = useState<number | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState<string | null>(null);
 
   /* WA queue state */
   const [waIdx, setWaIdx] = useState(0);
   const [waSentIds, setWaSentIds] = useState<Set<string>>(new Set());
+  const [waJobId, setWaJobId] = useState<string | null>(null);
 
   /* SMS send state */
   const [smsSending, setSmsSending] = useState(false);
@@ -135,6 +146,47 @@ export default function BroadcastPage() {
     failed: number;
     remaining: number;
   } | null>(null);
+
+  /* ---- Resume a scheduled WhatsApp job from cron-fired notification ---- */
+  useEffect(() => {
+    if (!resumeJobId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/broadcast/schedule/${resumeJobId}`);
+        const json = await res.json();
+        if (!json.success || cancelled) {
+          if (!cancelled) toast.error(json.error || "Couldn't load the scheduled broadcast.");
+          return;
+        }
+        const data = json.data;
+        if (data.channel !== "whatsapp") {
+          // SMS jobs are dispatched server-side — designer doesn't need to do anything.
+          toast.info("This SMS broadcast is handled by the system.");
+          return;
+        }
+        const sentIds = new Set<string>(
+          (data.recipients as { _id: string; sent: boolean }[])
+            .filter((r) => r.sent)
+            .map((r) => r._id),
+        );
+        const firstUnsent = (data.recipients as { _id: string }[]).findIndex(
+          (r) => !sentIds.has(r._id),
+        );
+        setWaJobId(resumeJobId);
+        setRecipients(data.recipients);
+        setMessage(data.message);
+        setLang(data.language || "english");
+        setChannel("whatsapp");
+        setStep("send-wa");
+        setWaIdx(firstUnsent === -1 ? 0 : firstUnsent);
+        setWaSentIds(sentIds);
+      } catch (err) {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : "Resume failed");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [resumeJobId]);
 
   /* ---- Load recipients on segment change ---- */
   const loadRecipients = useCallback(async (seg: Segment) => {
@@ -173,9 +225,32 @@ export default function BroadcastPage() {
     setMessage(lang === "pidgin" ? t.pidgin : t.en);
   }
 
-  function startWASend() {
+  async function startWASend() {
     setWaIdx(0);
     setWaSentIds(new Set());
+
+    // Create a BroadcastJob so the queue is observable in /broadcast/history
+    try {
+      const res = await fetch("/api/broadcast/whatsapp-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segment,
+          message,
+          language: lang,
+          recipients: recipients.map((r) => ({
+            clientId: r._id,
+            name: r.name,
+            phone: r.phone,
+          })),
+        }),
+      });
+      const json = await res.json();
+      if (json.success) setWaJobId(json.data.jobId);
+    } catch {
+      /* non-fatal — designer can still send, history just won't track */
+    }
+
     setStep("send-wa");
   }
 
@@ -188,6 +263,8 @@ export default function BroadcastPage() {
         body: JSON.stringify({
           recipientIds: recipients.map((r) => r._id),
           message,
+          segment,
+          language: lang,
         }),
       });
       const json = await res.json();
@@ -210,13 +287,51 @@ export default function BroadcastPage() {
     }
   }
 
-  /* WA: when designer marks a recipient as sent, log the outreach */
-  async function logWASent(r: Recipient) {
+  async function scheduleBroadcast() {
+    if (!scheduledAt) {
+      toast.error("Pick a date and time first.");
+      return;
+    }
+    const when = new Date(scheduledAt);
+    if (isNaN(when.getTime()) || when.getTime() < Date.now() + 5 * 60 * 1000) {
+      toast.error("Schedule at least 5 minutes from now.");
+      return;
+    }
+    setScheduling(true);
     try {
-      await fetch("/api/broadcast/whatsapp-log", {
+      const res = await fetch("/api/broadcast/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          recipientIds: recipients.map((r) => r._id),
+          message,
+          segment,
+          language: lang,
+          channel,
+          scheduledFor: when.toISOString(),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error || "Failed to schedule");
+        return;
+      }
+      setScheduledFor(when.toISOString());
+      setStep("scheduled");
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  /* WA: when designer marks a recipient as sent, attach to the BroadcastJob */
+  async function logWASent(r: Recipient) {
+    if (!waJobId) return;
+    try {
+      await fetch("/api/broadcast/whatsapp-log", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: waJobId,
           clientId: r._id,
           message: personalise(message, r.name).slice(0, 280),
         }),
@@ -260,7 +375,16 @@ export default function BroadcastPage() {
             Send one message to many clients — via your WhatsApp (free) or SMS (₦4 each).
           </p>
         </div>
-        <BackHomeButton step={step} setStep={setStep} />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/broadcast/history"
+            className="hidden h-9 items-center gap-1.5 rounded-lg border border-[#1A1A2E]/10 bg-white/40 px-3 text-xs font-medium text-[#1A1A2E]/65 hover:bg-white/60 sm:inline-flex"
+          >
+            <HistoryIcon className="h-3.5 w-3.5" />
+            History
+          </Link>
+          <BackHomeButton step={step} setStep={setStep} />
+        </div>
       </header>
 
       {/* Progress dots */}
@@ -463,7 +587,7 @@ export default function BroadcastPage() {
             </button>
           </div>
 
-          {channel === "sms" && smsBalance != null && smsBalance < recipients.length && (
+          {channel === "sms" && smsBalance != null && smsBalance < recipients.length && timing === "now" && (
             <div className="rounded-xl border border-amber-300/50 bg-amber-50/60 p-3 text-xs text-amber-700">
               You need {recipients.length - smsBalance} more credit{recipients.length - smsBalance === 1 ? "" : "s"}.{" "}
               <Link href="/billing" className="font-semibold underline">Buy a pack</Link>
@@ -471,11 +595,76 @@ export default function BroadcastPage() {
             </div>
           )}
 
+          {/* When-to-send toggle */}
+          <div className="rounded-2xl border border-[#1A1A2E]/8 bg-white/30 p-1">
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                onClick={() => setTiming("now")}
+                className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-colors ${
+                  timing === "now"
+                    ? "bg-white text-[#1A1A2E] shadow-sm"
+                    : "text-[#1A1A2E]/55 hover:text-[#1A1A2E]"
+                }`}
+              >
+                <Send className="h-3.5 w-3.5" />
+                Send now
+              </button>
+              <button
+                onClick={() => setTiming("later")}
+                className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-colors ${
+                  timing === "later"
+                    ? "bg-white text-[#1A1A2E] shadow-sm"
+                    : "text-[#1A1A2E]/55 hover:text-[#1A1A2E]"
+                }`}
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                Schedule for later
+              </button>
+            </div>
+          </div>
+
+          {timing === "later" && (
+            <div className="rounded-xl border border-[#1A1A2E]/8 bg-white/40 p-4">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/50">
+                When should this go out?
+              </label>
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                min={(() => {
+                  const d = new Date(Date.now() + 6 * 60 * 1000);
+                  // Strip seconds for datetime-local input
+                  const pad = (n: number) => String(n).padStart(2, "0");
+                  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                })()}
+                className="glass-input flex h-11 w-full rounded-lg px-3 text-sm focus-visible:outline-none"
+              />
+              {channel === "whatsapp" ? (
+                <p className="mt-2 text-[11px] text-[#1A1A2E]/50">
+                  At that time you&apos;ll get a notification. Open it and walk through the WhatsApp queue.
+                </p>
+              ) : (
+                <p className="mt-2 text-[11px] text-[#1A1A2E]/50">
+                  We&apos;ll send the SMS automatically. {recipients.length} credit{recipients.length === 1 ? "" : "s"} will be reserved at send time.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setStep("compose")}>
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
-            {channel === "whatsapp" ? (
+            {timing === "later" ? (
+              <Button
+                onClick={scheduleBroadcast}
+                disabled={scheduling || !scheduledAt}
+              >
+                {scheduling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calendar className="h-4 w-4" />}
+                Schedule
+              </Button>
+            ) : channel === "whatsapp" ? (
               <Button onClick={startWASend}>
                 Open WhatsApp queue <ChevronRight className="h-4 w-4" />
               </Button>
@@ -489,6 +678,54 @@ export default function BroadcastPage() {
               </Button>
             )}
           </div>
+        </motion.section>
+      )}
+
+      {/* ========================== STEP: SCHEDULED ========================= */}
+      {step === "scheduled" && (
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <GlassCard padding="lg">
+            <div className="flex flex-col items-center text-center">
+              <Calendar className="h-10 w-10 text-[#C75B39]" />
+              <h2 className="mt-3 text-lg font-bold text-[#1A1A2E]">Broadcast scheduled</h2>
+              {scheduledFor && (
+                <p className="mt-1 text-sm text-[#1A1A2E]/60">
+                  {recipients.length} recipient{recipients.length === 1 ? "" : "s"} ·
+                  {" "}{channel === "whatsapp" ? "WhatsApp queue" : "SMS"} ·
+                  {" "}{new Date(scheduledFor).toLocaleString("en-NG", {
+                    weekday: "short", day: "numeric", month: "short",
+                    hour: "numeric", minute: "2-digit",
+                  })}
+                </p>
+              )}
+              <p className="mt-3 text-xs text-[#1A1A2E]/45">
+                {channel === "whatsapp"
+                  ? "We'll notify you when it's time to walk through the queue."
+                  : "We'll send the SMS automatically at the scheduled time."}
+              </p>
+              <div className="mt-5 flex gap-2">
+                <Link
+                  href="/broadcast/history"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#1A1A2E]/10 bg-white/60 px-4 text-sm font-medium text-[#1A1A2E]/70"
+                >
+                  <HistoryIcon className="h-4 w-4" />
+                  View scheduled
+                </Link>
+                <Button onClick={() => {
+                  setStep("segment");
+                  setMessage("");
+                  setScheduledAt("");
+                  setScheduledFor(null);
+                  setTiming("now");
+                }}>
+                  New broadcast
+                </Button>
+              </div>
+            </div>
+          </GlassCard>
         </motion.section>
       )}
 
