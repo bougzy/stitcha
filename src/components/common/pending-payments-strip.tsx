@@ -30,7 +30,7 @@ interface ManualPaymentRow {
   purpose: string;
   amount: number;
   reference: string;
-  status: "pending" | "verified" | "rejected";
+  status: "pending" | "verified" | "rejected" | "refunded";
   createdAt: string;
   adminNote?: string;
 }
@@ -165,6 +165,11 @@ export function PendingPaymentsStrip({
                       Reason: {p.adminNote}
                     </p>
                   )}
+                  {p.status === "refunded" && p.adminNote && (
+                    <p className="mt-1 text-[10px] text-amber-700">
+                      Refunded: {p.adminNote}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {p.status === "pending" && (
@@ -180,6 +185,11 @@ export function PendingPaymentsStrip({
                   {p.status === "rejected" && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
                       <XCircle className="h-2.5 w-2.5" /> Rejected
+                    </span>
+                  )}
+                  {p.status === "refunded" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                      <XCircle className="h-2.5 w-2.5" /> Refunded
                     </span>
                   )}
                   {p.status === "pending" && adminWA && (

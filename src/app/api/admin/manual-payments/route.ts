@@ -65,6 +65,8 @@ export async function GET(request: Request) {
             createdAt: rr.createdAt,
             verifiedAt: rr.verifiedAt,
             rejectedAt: rr.rejectedAt,
+            refundedAt: rr.refundedAt,
+            refundDetails: rr.refundDetails,
             designer: designer
               ? {
                   id: String(designer._id),

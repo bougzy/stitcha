@@ -18,7 +18,7 @@ export type ManualPaymentPurpose =
   | "sms_pack"
   | "studio_addon";
 
-export type ManualPaymentStatus = "pending" | "verified" | "rejected";
+export type ManualPaymentStatus = "pending" | "verified" | "rejected" | "refunded";
 
 export interface IManualPayment extends Document {
   designerId: mongoose.Types.ObjectId;
@@ -46,10 +46,18 @@ export interface IManualPayment extends Document {
   /** Free-text note from the designer (e.g. "sent at 3pm Tue"). */
   designerNote?: string;
   status: ManualPaymentStatus;
-  /** Set on reject. */
+  /** Set on reject OR refund — surfaced to the designer. */
   adminNote?: string;
   verifiedAt?: Date;
   rejectedAt?: Date;
+  /** Set when a previously-verified payment is rolled back. */
+  refundedAt?: Date;
+  /** Captures the rollback that was applied so the audit trail is complete. */
+  refundDetails?: {
+    summary?: string;
+    /** Counters / dates the helper was unable to fully revert (best-effort log). */
+    notes?: string[];
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -77,13 +85,18 @@ const ManualPaymentSchema = new Schema<IManualPayment>(
     designerNote: { type: String, trim: true, maxlength: 500 },
     status: {
       type: String,
-      enum: ["pending", "verified", "rejected"],
+      enum: ["pending", "verified", "rejected", "refunded"],
       default: "pending",
       index: true,
     },
     adminNote:  { type: String, maxlength: 500 },
     verifiedAt: { type: Date },
     rejectedAt: { type: Date },
+    refundedAt: { type: Date },
+    refundDetails: {
+      summary: { type: String, maxlength: 500 },
+      notes: [{ type: String, maxlength: 200 }],
+    },
   },
   { timestamps: true },
 );

@@ -36,7 +36,7 @@ interface AdminPayment {
   purpose: "subscription" | "boost_post" | "sms_pack" | "studio_addon";
   amount: number;
   reference: string;
-  status: "pending" | "verified" | "rejected";
+  status: "pending" | "verified" | "rejected" | "refunded";
   payload: Record<string, unknown>;
   proofImage?: string;
   senderName?: string;
@@ -46,6 +46,8 @@ interface AdminPayment {
   createdAt: string;
   verifiedAt?: string;
   rejectedAt?: string;
+  refundedAt?: string;
+  refundDetails?: { summary?: string; notes?: string[] };
   designer: {
     id: string;
     name: string;
@@ -93,6 +95,8 @@ export default function AdminPaymentsPage() {
   const [acting, setActing] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+  const [refundingId, setRefundingId] = useState<string | null>(null);
+  const [refundNote, setRefundNote] = useState("");
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -159,6 +163,31 @@ export default function AdminPaymentsPage() {
       refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Reject failed");
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function submitRefund(id: string) {
+    if (!refundNote.trim() || refundNote.trim().length < 3) {
+      toast.error("Add a refund reason (visible to designer).");
+      return;
+    }
+    setActing(id);
+    try {
+      const res = await fetch(`/api/admin/manual-payments/${id}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: refundNote.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Refund failed");
+      toast.success(`Refunded — ${json.data?.summary || "rolled back"}`);
+      setRefundingId(null);
+      setRefundNote("");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Refund failed");
     } finally {
       setActing(null);
     }
@@ -242,6 +271,12 @@ export default function AdminPaymentsPage() {
               setRejectNote={setRejectNote}
               onCancelReject={() => { setRejectingId(null); setRejectNote(""); }}
               onSubmitReject={() => submitReject(p.id)}
+              onStartRefund={() => { setRefundingId(p.id); setRefundNote(""); }}
+              isRefundingMe={refundingId === p.id}
+              refundNote={refundNote}
+              setRefundNote={setRefundNote}
+              onCancelRefund={() => { setRefundingId(null); setRefundNote(""); }}
+              onSubmitRefund={() => submitRefund(p.id)}
             />
           ))}
         </div>
@@ -262,6 +297,12 @@ function PaymentRow({
   setRejectNote,
   onCancelReject,
   onSubmitReject,
+  onStartRefund,
+  isRefundingMe,
+  refundNote,
+  setRefundNote,
+  onCancelRefund,
+  onSubmitRefund,
 }: {
   payment: AdminPayment;
   acting: boolean;
@@ -272,6 +313,12 @@ function PaymentRow({
   setRejectNote: (s: string) => void;
   onCancelReject: () => void;
   onSubmitReject: () => void;
+  onStartRefund: () => void;
+  isRefundingMe: boolean;
+  refundNote: string;
+  setRefundNote: (s: string) => void;
+  onCancelRefund: () => void;
+  onSubmitRefund: () => void;
 }) {
   const isPending = p.status === "pending";
   const phoneClean = p.designer?.phone?.replace(/\D/g, "");
@@ -376,12 +423,34 @@ function PaymentRow({
             </div>
           )}
 
-          {p.adminNote && (
+          {p.adminNote && p.status !== "refunded" && (
             <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2">
               <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-red-300">
                 <AlertTriangle className="h-3 w-3" /> Rejection reason (visible to designer)
               </p>
               <p className="mt-1 text-xs text-red-200">{p.adminNote}</p>
+            </div>
+          )}
+
+          {p.status === "refunded" && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+              <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                <AlertTriangle className="h-3 w-3" /> Refund — rolled back
+              </p>
+              {p.adminNote && <p className="mt-1 text-xs text-amber-200">Reason: {p.adminNote}</p>}
+              {p.refundDetails?.summary && (
+                <p className="mt-0.5 text-[11px] text-amber-200/85">{p.refundDetails.summary}</p>
+              )}
+              {Array.isArray(p.refundDetails?.notes) &&
+                p.refundDetails.notes.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {p.refundDetails.notes.map((n, i) => (
+                      <li key={i} className="text-[10px] text-amber-200/65">
+                        · {n}
+                      </li>
+                    ))}
+                  </ul>
+                )}
             </div>
           )}
         </div>
@@ -472,14 +541,62 @@ function PaymentRow({
             </div>
           )}
 
-          {!isPending && (
-            <div className="text-[11px] text-white/45">
-              {p.status === "verified" && p.verifiedAt && (
-                <>Verified {formatDate(p.verifiedAt)}</>
+          {!isPending && !isRefundingMe && (
+            <div className="space-y-2">
+              <div className="text-[11px] text-white/45">
+                {p.status === "verified" && p.verifiedAt && (
+                  <>Verified {formatDate(p.verifiedAt)}</>
+                )}
+                {p.status === "rejected" && p.rejectedAt && (
+                  <>Rejected {formatDate(p.rejectedAt)}</>
+                )}
+                {p.status === "refunded" && p.refundedAt && (
+                  <>Refunded {formatDate(p.refundedAt)}</>
+                )}
+              </div>
+              {p.status === "verified" && (
+                <button
+                  onClick={onStartRefund}
+                  disabled={acting}
+                  className="inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/[0.08] px-2 text-[10px] font-semibold text-amber-300 hover:bg-amber-500/[0.15] disabled:opacity-50"
+                >
+                  Refund / roll back
+                </button>
               )}
-              {p.status === "rejected" && p.rejectedAt && (
-                <>Rejected {formatDate(p.rejectedAt)}</>
-              )}
+            </div>
+          )}
+
+          {isRefundingMe && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                Refund — best-effort rollback
+              </p>
+              <textarea
+                value={refundNote}
+                onChange={(e) => setRefundNote(e.target.value)}
+                placeholder="Why? e.g. duplicate transfer, accidental verification…"
+                rows={3}
+                className="w-full resize-none rounded-md border border-amber-500/30 bg-black/40 px-2 py-1.5 text-xs text-white placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500/50"
+              />
+              <p className="rounded bg-amber-500/[0.08] px-2 py-1 text-[10px] leading-snug text-amber-200/70">
+                Subscription drops to Free · Boost trims by 7 days · SMS deducts up to the pack size (never below zero) · Studio trims by 30 days. Designer is notified.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={onCancelRefund}
+                  disabled={acting}
+                  className="rounded-lg border border-white/8 bg-white/[0.04] px-2 py-1.5 text-xs font-semibold text-white/65 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={onSubmitRefund}
+                  disabled={acting || refundNote.trim().length < 3}
+                  className="rounded-lg bg-amber-600 px-2 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Confirm refund
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -516,6 +633,13 @@ function StatusChip({ status }: { status: string }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-300">
         <XCircle className="h-2.5 w-2.5" /> Rejected
+      </span>
+    );
+  }
+  if (status === "refunded") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+        <XCircle className="h-2.5 w-2.5" /> Refunded
       </span>
     );
   }

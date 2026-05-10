@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   MessageCircle,
   AlertTriangle,
+  Share2,
 } from "lucide-react";
 import { BANK_DETAILS } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
@@ -256,7 +257,7 @@ export function PaymentModal({ open, request, onClose, onSubmitted }: PaymentMod
                   </div>
 
                   {/* Bank details */}
-                  <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                  <div className="mb-2 grid gap-2 sm:grid-cols-3">
                     <BankField label="Bank" value={BANK_DETAILS.bankName} />
                     <BankField label="Account name" value={BANK_DETAILS.accountName} />
                     <BankField
@@ -264,6 +265,35 @@ export function PaymentModal({ open, request, onClose, onSubmitted }: PaymentMod
                       value={BANK_DETAILS.accountNumber}
                       onCopy={() => copy(BANK_DETAILS.accountNumber, "Account number")}
                     />
+                  </div>
+
+                  {/* Share-to-WhatsApp helper — useful when the designer is paying
+                     from a different device than the one they're using right now */}
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1A1A2E]/8 bg-white/40 px-3 py-2">
+                    <p className="text-[11px] text-[#1A1A2E]/55">
+                      Paying from another device or asking someone to pay?
+                    </p>
+                    <a
+                      href={(() => {
+                        const lines = [
+                          `Stitcha · ${PURPOSE_LABEL[request.purpose]} payment`,
+                          ``,
+                          `Bank:           ${BANK_DETAILS.bankName}`,
+                          `Account name:   ${BANK_DETAILS.accountName}`,
+                          `Account number: ${BANK_DETAILS.accountNumber}`,
+                          `Amount:         ₦${request.amount.toLocaleString("en-NG")}`,
+                          ``,
+                          `Add the reference Stitcha gives me in the bank narration.`,
+                        ];
+                        return `https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`;
+                      })()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#25D366]/15 px-2.5 text-[11px] font-semibold text-[#128C7E] hover:bg-[#25D366]/25"
+                    >
+                      <Share2 className="h-3 w-3" />
+                      Share via WhatsApp
+                    </a>
                   </div>
 
                   {/* Form fields */}
