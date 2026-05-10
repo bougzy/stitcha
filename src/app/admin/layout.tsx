@@ -18,6 +18,7 @@ import {
   Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AdminNotificationBell } from "@/components/admin/admin-notification-bell";
 
 const adminNavItems = [
   { label: "Overview",   href: "/admin",           icon: LayoutDashboard },
@@ -191,7 +192,8 @@ export default function AdminLayout({
               )?.label || "Admin"}
             </h2>
           </div>
-          <div className="flex items-center gap-2 text-xs text-white/30">
+          <AdminNotificationBell />
+          <div className="hidden items-center gap-2 text-xs text-white/30 sm:flex">
             <div className="h-2 w-2 rounded-full bg-emerald-500" />
             Admin Session Active
           </div>

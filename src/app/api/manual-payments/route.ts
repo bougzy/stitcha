@@ -5,6 +5,7 @@ import connectDB from "@/lib/db";
 import { ManualPayment, type ManualPaymentPurpose } from "@/lib/models/manual-payment";
 import { Designer } from "@/lib/models/designer";
 import { Notification } from "@/lib/models/notification";
+import { notifyAdmin } from "@/lib/admin-notify";
 import {
   SUBSCRIPTION_PLANS,
   SMS_PACKS,
@@ -150,6 +151,24 @@ export async function POST(request: Request) {
       title: "📝 Payment submitted",
       message: `We've received your ${purpose.replace("_", " ")} payment for review. We'll activate it as soon as it's verified.`,
       link: "/billing",
+    }).catch(() => { /* non-fatal */ });
+
+    // Admin alert — appears in the admin bell and on /admin overview
+    const designerLabel =
+      (d?.businessName as string | undefined) || (d?.name as string | undefined) || "A designer";
+    notifyAdmin({
+      kind: "manual_payment_submitted",
+      severity: "action_required",
+      title: `💰 New ${purpose.replace("_", " ")} payment — ₦${amount.toLocaleString("en-NG")}`,
+      message: `${designerLabel} submitted reference ${reference}. Verify to activate.`,
+      link: "/admin/payments",
+      designerId: userId,
+      meta: {
+        reference,
+        amount,
+        purpose,
+        payload: body.payload,
+      },
     }).catch(() => { /* non-fatal */ });
 
     return NextResponse.json({

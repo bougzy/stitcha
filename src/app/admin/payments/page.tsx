@@ -94,8 +94,8 @@ export default function AdminPaymentsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/admin/manual-payments?status=${tab === "pending" ? "pending" : "all"}&limit=100`);
       const json = await res.json();
@@ -104,13 +104,25 @@ export default function AdminPaymentsPage() {
         window.location.href = "/admin/login";
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load");
+      if (!silent) toast.error(err instanceof Error ? err.message : "Failed to load");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [tab]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  /* Poll every 25s for new payments while the page is open. Silent so we
+     don't kick the loading state if a backgrounded tab refreshes. */
+  useEffect(() => {
+    const interval = window.setInterval(() => refresh(true), 25_000);
+    const onFocus = () => refresh(true);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refresh]);
 
   async function verify(id: string) {
     setActing(id);
@@ -192,7 +204,7 @@ export default function AdminPaymentsPage() {
           </button>
         </div>
         <button
-          onClick={refresh}
+          onClick={() => refresh()}
           disabled={loading}
           className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.04] px-3 text-xs font-medium text-white/65 hover:bg-white/[0.08]"
         >

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import connectDB from "@/lib/db";
 import { activatePurchase, type PurchasePurpose } from "@/lib/activate-purchase";
+import { notifyAdmin } from "@/lib/admin-notify";
+import { Designer } from "@/lib/models/designer";
 
 /* -------------------------------------------------------------------------- */
 /*  Paystack webhook — thin wrapper that hands off to activatePurchase().      */
@@ -63,6 +65,33 @@ export async function POST(request: Request) {
 
     if (!result.ok) {
       console.warn("Paystack webhook activation failed:", result.detail, metadata);
+    }
+
+    // Surface to admin (info — already auto-activated, no action needed)
+    try {
+      const designer = await Designer.findById(designerId)
+        .select("name businessName")
+        .lean();
+      const d = (designer as unknown as Record<string, unknown> | null) ?? null;
+      const designerLabel =
+        (d?.businessName as string | undefined) ||
+        (d?.name as string | undefined) ||
+        "A designer";
+      notifyAdmin({
+        kind: "paystack_payment_succeeded",
+        severity: result.ok ? "info" : "warning",
+        title: result.ok
+          ? `💳 Paystack payment — ₦${amountNGN.toLocaleString("en-NG")}`
+          : `⚠️ Paystack activation failed — ₦${amountNGN.toLocaleString("en-NG")}`,
+        message: result.ok
+          ? `${designerLabel}: ${purpose.replace("_", " ")} activated automatically.`
+          : `${designerLabel}: ${purpose.replace("_", " ")} payment couldn't activate (${result.detail}). Investigate.`,
+        link: result.ok ? "/admin/payments?status=all" : "/admin/payments",
+        designerId,
+        meta: { reference, amount: amountNGN, purpose, payload: metadata },
+      }).catch(() => { /* non-fatal */ });
+    } catch {
+      /* non-fatal */
     }
 
     return NextResponse.json({ received: true, ...result });

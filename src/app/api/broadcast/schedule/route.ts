@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import connectDB from "@/lib/db";
 import { Client } from "@/lib/models/client";
 import { BroadcastJob } from "@/lib/models/broadcast-job";
+import { loadDesignerForAction } from "@/lib/access-control";
 
 /* -------------------------------------------------------------------------- */
 /*  /api/broadcast/schedule                                                    */
@@ -72,6 +73,14 @@ export async function POST(request: Request) {
     }
 
     await connectDB();
+
+    const gate = await loadDesignerForAction(userId);
+    if (!gate.ok) {
+      return NextResponse.json(
+        { success: false, error: gate.message, suspended: gate.reason === "suspended" },
+        { status: gate.status },
+      );
+    }
 
     // Snapshot recipient names + phones so a renamed/deleted client later
     // doesn't break the scheduled send.

@@ -8,6 +8,7 @@ import { Designer } from "@/lib/models/designer";
 import { generateScanLink } from "@/lib/utils";
 import { APP_URL } from "@/lib/constants";
 import { checkSubscriptionLimit } from "@/lib/subscription";
+import { loadDesignerForAction, getEffectivePlan } from "@/lib/access-control";
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/scan/sessions                                                     */
@@ -134,9 +135,17 @@ export async function POST(request: Request) {
 
     await connectDB();
 
-    // Check subscription limit for creating scans
-    const designerDoc = await Designer.findById(designerId).select("subscription").lean();
-    const subscription = designerDoc?.subscription || "free";
+    // Suspended / not-found gate (also gives us the loaded designer record)
+    const gate = await loadDesignerForAction(designerId);
+    if (!gate.ok) {
+      return NextResponse.json(
+        { success: false, error: gate.message, suspended: gate.reason === "suspended" },
+        { status: gate.status },
+      );
+    }
+
+    // Use the EFFECTIVE plan, not the stored field — expired Plus → free.
+    const subscription = getEffectivePlan(gate.designer);
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
     // Monthly count (used by Plus plan)

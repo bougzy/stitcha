@@ -6,6 +6,7 @@ import { Order } from "@/lib/models/order";
 import { Client } from "@/lib/models/client";
 import { Designer } from "@/lib/models/designer";
 import { orderSchema } from "@/lib/validations";
+import { loadDesignerForAction } from "@/lib/access-control";
 import { logActivity } from "@/lib/models/activity-log";
 import { CalendarEvent } from "@/lib/models/calendar-event";
 
@@ -146,6 +147,14 @@ export async function POST(request: Request) {
     }
 
     await connectDB();
+
+    const gate = await loadDesignerForAction(designerId);
+    if (!gate.ok) {
+      return NextResponse.json(
+        { success: false, error: gate.message, suspended: gate.reason === "suspended" },
+        { status: gate.status },
+      );
+    }
 
     // Verify the client belongs to this designer
     const client = await Client.findOne({

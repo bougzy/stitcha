@@ -76,6 +76,19 @@ export default function BillingPage() {
 
   const currentSub = designer?.subscription || "free";
 
+  // Renewal-due window — surface a banner when the paid plan is within 7 days of expiry,
+  // and a stronger one if it has actually expired.
+  const renewalState = (() => {
+    if (!designer || currentSub === "free" || !designer.subscriptionExpiry) return null;
+    const exp = new Date(designer.subscriptionExpiry);
+    if (isNaN(exp.getTime())) return null;
+    const ms = exp.getTime() - Date.now();
+    const days = Math.ceil(ms / 86_400_000);
+    if (ms < 0) return { kind: "expired" as const, days: Math.abs(days), date: exp };
+    if (days <= 7) return { kind: "soon" as const, days, date: exp };
+    return null;
+  })();
+
   /* ------------------------------------------------------------------ */
   /*  Plan order: free → plus → pro                                      */
   /* ------------------------------------------------------------------ */
@@ -95,6 +108,51 @@ export default function BillingPage() {
             Stitcha is free forever for the essentials. Upgrade only when you need AI scanning.
           </p>
         </motion.div>
+
+        {/* ---- Renewal warning banner ---- */}
+        {renewalState && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "rounded-2xl border p-3.5 sm:p-4",
+              renewalState.kind === "expired"
+                ? "border-red-300/60 bg-red-50/70"
+                : "border-amber-300/60 bg-amber-50/70",
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={cn(
+                  "mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full",
+                  renewalState.kind === "expired" ? "bg-red-500" : "bg-amber-500",
+                )}
+              />
+              <div className="flex-1">
+                <p
+                  className={cn(
+                    "text-sm font-semibold",
+                    renewalState.kind === "expired" ? "text-red-800" : "text-amber-900",
+                  )}
+                >
+                  {renewalState.kind === "expired"
+                    ? `Your ${currentSub.toUpperCase()} plan expired ${renewalState.days} day${renewalState.days === 1 ? "" : "s"} ago`
+                    : `Your ${currentSub.toUpperCase()} plan renews in ${renewalState.days} day${renewalState.days === 1 ? "" : "s"}`}
+                </p>
+                <p
+                  className={cn(
+                    "mt-0.5 text-xs",
+                    renewalState.kind === "expired" ? "text-red-700/80" : "text-amber-700/80",
+                  )}
+                >
+                  {renewalState.kind === "expired"
+                    ? "You're now on the Free plan. Renew to restore your scan quota and other paid features."
+                    : `Renews ${renewalState.date.toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}.  Top up early to avoid interruption.`}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* ---- Current plan badge ---- */}
         {designer && (
