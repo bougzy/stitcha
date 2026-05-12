@@ -33,6 +33,7 @@ import {
 } from "@/lib/body-measurement";
 import { checkPlausibility, type MeasurementWarning } from "@/lib/measurement-plausibility";
 import { LiveCaptureView, type LiveCaptureResult } from "@/components/scan/live-capture";
+import { PhotoUploadView } from "@/components/scan/photo-upload";
 import { CardCalibration } from "@/components/scan/card-calibration";
 import { TapeRecalibrateDialog } from "@/components/scan/tape-recalibrate-dialog";
 
@@ -100,6 +101,9 @@ export default function ClientScanPage() {
   const [sideFrame, setSideFrame] = useState<CapturedFrame | null>(null);
   const [cardScaleCmPerPx, setCardScaleCmPerPx] = useState<number | null>(null);
   const [useCard, setUseCard] = useState(false);
+  /** How the customer is providing their photos. Choice persists across
+   *  the front + side capture so they don't accidentally mix paths. */
+  const [captureMode, setCaptureMode] = useState<"live" | "upload">("live");
 
   // Result + UI state
   const [analyzeStatus, setAnalyzeStatus] = useState("");
@@ -463,15 +467,28 @@ export default function ClientScanPage() {
                 Stand straight, arms slightly out, full body in frame.
                 {useCard && " Hold the card on your chest."}
               </p>
-              <LiveCaptureView
-                view="front"
-                onCancel={() => setStep("valid")}
-                onCaptured={(r: LiveCaptureResult) => {
-                  setFrontFrame(r.frame);
-                  setFrontPreview(r.previewDataUrl);
-                  setStep(useCard ? "card-calibrate" : "side-capture");
-                }}
-              />
+              <CaptureModeToggle mode={captureMode} onChange={setCaptureMode} />
+              {captureMode === "live" ? (
+                <LiveCaptureView
+                  view="front"
+                  onCancel={() => setStep("valid")}
+                  onCaptured={(r: LiveCaptureResult) => {
+                    setFrontFrame(r.frame);
+                    setFrontPreview(r.previewDataUrl);
+                    setStep(useCard ? "card-calibrate" : "side-capture");
+                  }}
+                />
+              ) : (
+                <PhotoUploadView
+                  view="front"
+                  onCancel={() => setStep("valid")}
+                  onCaptured={(r: LiveCaptureResult) => {
+                    setFrontFrame(r.frame);
+                    setFrontPreview(r.previewDataUrl);
+                    setStep(useCard ? "card-calibrate" : "side-capture");
+                  }}
+                />
+              )}
             </motion.div>
           )}
 
@@ -494,11 +511,20 @@ export default function ClientScanPage() {
               <p className="mt-1 mb-3 text-center text-xs text-[#1A1A2E]/55">
                 Turn 90° (left or right). Stand naturally.
               </p>
-              <LiveCaptureView
-                view="side"
-                onCancel={() => { setSideFrame(null); setStep("front-capture"); }}
-                onCaptured={(r: LiveCaptureResult) => setSideFrame(r.frame)}
-              />
+              <CaptureModeToggle mode={captureMode} onChange={setCaptureMode} />
+              {captureMode === "live" ? (
+                <LiveCaptureView
+                  view="side"
+                  onCancel={() => { setSideFrame(null); setStep("front-capture"); }}
+                  onCaptured={(r: LiveCaptureResult) => setSideFrame(r.frame)}
+                />
+              ) : (
+                <PhotoUploadView
+                  view="side"
+                  onCancel={() => { setSideFrame(null); setStep("front-capture"); }}
+                  onCaptured={(r: LiveCaptureResult) => setSideFrame(r.frame)}
+                />
+              )}
             </motion.div>
           )}
 
@@ -668,5 +694,73 @@ function ResultsList({ result }: { result: MeasurementResult }) {
         );
       })}
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  CaptureModeToggle                                                            */
+/*  Pill-style switch between live camera and photo upload. Lives above       */
+/*  whichever view is active so customers can flip at any time without       */
+/*  losing their other progress.                                              */
+/* -------------------------------------------------------------------------- */
+
+function CaptureModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: "live" | "upload";
+  onChange: (m: "live" | "upload") => void;
+}) {
+  return (
+    <div className="mb-3 grid grid-cols-2 gap-1 rounded-2xl border border-[#1A1A2E]/8 bg-white/30 p-1">
+      <button
+        type="button"
+        onClick={() => onChange("live")}
+        className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+          mode === "live"
+            ? "bg-white text-[#1A1A2E] shadow-sm"
+            : "text-[#1A1A2E]/55 hover:text-[#1A1A2E]"
+        }`}
+      >
+        <ScanLineIcon className="h-3.5 w-3.5" />
+        Use camera
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("upload")}
+        className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+          mode === "upload"
+            ? "bg-white text-[#1A1A2E] shadow-sm"
+            : "text-[#1A1A2E]/55 hover:text-[#1A1A2E]"
+        }`}
+      >
+        <UploadIcon className="h-3.5 w-3.5" />
+        Upload photo
+      </button>
+    </div>
+  );
+}
+
+/* Inline icon shims — Lucide imports collide with names used elsewhere in
+ * the file, so we re-bind them locally to avoid touching the top imports. */
+function ScanLineIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M3 12h18" />
+    </svg>
+  );
+}
+
+function UploadIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" x2="12" y1="3" y2="15" />
+    </svg>
   );
 }
