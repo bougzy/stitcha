@@ -36,6 +36,9 @@ import { LiveCaptureView, type LiveCaptureResult } from "@/components/scan/live-
 import { PhotoUploadView } from "@/components/scan/photo-upload";
 import { CardCalibration } from "@/components/scan/card-calibration";
 import { TapeRecalibrateDialog } from "@/components/scan/tape-recalibrate-dialog";
+import { AccuracyChip } from "@/components/scan/accuracy-chip";
+import { recalibrateWithTape } from "@/lib/body-measurement";
+import { parseInchesInput } from "@/lib/units";
 
 /* ========================================================================== */
 /*  Types                                                                      */
@@ -52,6 +55,7 @@ type ScanStep =
   | "card-calibrate"
   | "side-capture"
   | "analyzing"
+  | "tape-verify"
   | "complete"
   | "expired"
   | "invalid"
@@ -68,7 +72,22 @@ interface SessionInfo {
   message?: string;
 }
 
-const HEIGHT_PRESETS = [150, 155, 160, 163, 165, 168, 170, 173, 175, 178, 180, 185];
+/** Quick-pick heights, capped at 175cm (97th percentile for Nigerian women).
+ *  Heights above that have to be typed in explicitly — picking the highest
+ *  preset by default was the #1 source of "way bigger" measurement errors
+ *  in production feedback. */
+const HEIGHT_PRESETS: { cm: number; label: string }[] = [
+  { cm: 150, label: "4'11\"" },
+  { cm: 155, label: "5'1\"" },
+  { cm: 158, label: "5'2\"" },
+  { cm: 160, label: "5'3\"" },
+  { cm: 163, label: "5'4\"" },
+  { cm: 165, label: "5'5\"" },
+  { cm: 168, label: "5'6\"" },
+  { cm: 170, label: "5'7\"" },
+  { cm: 173, label: "5'8\"" },
+  { cm: 175, label: "5'9\"" },
+];
 
 const stepVariants = {
   initial: { opacity: 0, y: 16 },
@@ -149,6 +168,52 @@ export default function ClientScanPage() {
     if (code) validateLink();
   }, [code, validateLink]);
 
+  /* Save once we're ready — extracted so tape-verify can call it after
+   * an optional recalibration. */
+  const persistResult = useCallback(
+    async (result: MeasurementResult, warnings: MeasurementWarning[]) => {
+      try {
+        const gender: BodyGender = sessionInfo?.isQuickScan ? guestGender : selectedGender;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const payload: Record<string, any> = {
+          measurements:        result.measurements,
+          confidence:          result.confidence,
+          confidenceScores:    result.confidenceScores,
+          aiEstimatedFields:   result.aiEstimatedFields,
+          scaleSource:         result.scaleSource ?? "height",
+          heightCm:            Number(heightCm),
+          gender,
+          plausibilityWarnings: warnings,
+        };
+        if (sessionInfo?.isQuickScan && guestName.trim()) {
+          payload.guestName = guestName.trim();
+          payload.guestPhone = guestPhone.trim();
+          payload.guestGender = guestGender;
+        }
+        const res = await fetch(`/api/scan/${code}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          setStep("error");
+          setErrorMessage(json.error || "Failed to save measurements.");
+          return;
+        }
+        setMeasurementResult(result);
+        setStep("complete");
+      } catch (err) {
+        setStep("error");
+        setErrorMessage(err instanceof Error ? err.message : "Save failed.");
+      }
+    },
+    [
+      sessionInfo, guestGender, selectedGender, guestName, guestPhone,
+      heightCm, code,
+    ],
+  );
+
   /* ---- Analyze: feed primitives into calculateMeasurements ---- */
   const runAnalysis = useCallback(async () => {
     if (!frontFrame || !sideFrame || !heightCm) return;
@@ -174,48 +239,29 @@ export default function ClientScanPage() {
         gender,
       );
       setPlausibilityWarnings(warnings);
-      setAnalyzeProgress(80);
-
-      // Persist
-      setAnalyzeStatus("Saving your measurements…");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const payload: Record<string, any> = {
-        measurements:        result.measurements,
-        confidence:          result.confidence,
-        confidenceScores:    result.confidenceScores,
-        aiEstimatedFields:   result.aiEstimatedFields,
-        scaleSource:         result.scaleSource ?? "height",
-        heightCm:            Number(heightCm),
-        gender,
-      };
-      if (sessionInfo?.isQuickScan && guestName.trim()) {
-        payload.guestName = guestName.trim();
-        payload.guestPhone = guestPhone.trim();
-        payload.guestGender = guestGender;
-      }
-
-      const res = await fetch(`/api/scan/${code}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
       setAnalyzeProgress(100);
 
-      if (json.success) {
-        setMeasurementResult(result);
-        setStep("complete");
-      } else {
-        setStep("error");
-        setErrorMessage(json.error || "Failed to save measurements.");
+      // Hold the in-memory result so tape-verify can recalibrate it
+      setMeasurementResult(result);
+
+      /* THE KEY GATE — if we don't have a card scale, force tape verification
+       * before saving. The single biggest cause of "way too big" measurements
+       * in production was a wrong self-reported height with no anchor. */
+      if (result.scaleSource === "height") {
+        setStep("tape-verify");
+        return;
       }
+
+      // Card-calibrated → save straight away
+      setAnalyzeStatus("Saving your measurements…");
+      await persistResult(result, warnings);
     } catch (err) {
       setStep("error");
       setErrorMessage(err instanceof Error ? err.message : "Analysis failed.");
     }
   }, [
     frontFrame, sideFrame, heightCm, sessionInfo, guestGender, selectedGender,
-    cardScaleCmPerPx, guestName, guestPhone, code,
+    cardScaleCmPerPx, persistResult,
   ]);
 
   /* Auto-run when both frames ready */
@@ -349,37 +395,85 @@ export default function ClientScanPage() {
             <motion.div key="height" {...stepVariants} className="flex flex-1 flex-col">
               <h2 className="text-center text-lg font-bold text-[#1A1A2E]">Your height</h2>
               <p className="mt-1 text-center text-sm text-[#1A1A2E]/55">
-                We use this only as a fallback scale reference.
+                <strong className="text-[#1A1A2E]/85">Be accurate here.</strong> Even a 5 cm error
+                makes every measurement off by ~3%.
               </p>
               <div className="mt-5">
                 <input
                   type="number"
                   inputMode="decimal"
                   step="0.5"
+                  min={120}
+                  max={220}
                   placeholder="Height in cm (e.g. 165)"
                   value={heightCm}
                   onChange={(e) => setHeightCm(e.target.value === "" ? "" : Number(e.target.value))}
                   className="glass-input flex h-12 w-full rounded-xl px-4 text-base font-semibold focus-visible:outline-none"
                 />
-                <p className="mt-1 text-[10px] text-[#1A1A2E]/40">
-                  cm only here — measurement values you'll see are in inches.
+                {/* Live ft+in translation as the user types */}
+                {heightCm && Number(heightCm) >= 120 && Number(heightCm) <= 220 && (
+                  <p className="mt-1 text-[11px] text-[#1A1A2E]/55">
+                    ≈ {(() => {
+                      const totalIn = Number(heightCm) / 2.54;
+                      const ft = Math.floor(totalIn / 12);
+                      const inch = Math.round(totalIn - ft * 12);
+                      return `${ft}'${inch}"`;
+                    })()}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#1A1A2E]/45">
+                  Quick pick
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {HEIGHT_PRESETS.map((h) => (
+                    <button
+                      key={h.cm}
+                      onClick={() => setHeightCm(h.cm)}
+                      className={`rounded-xl border py-2 text-center text-[11px] font-medium ${
+                        heightCm === h.cm
+                          ? "border-[#C75B39] bg-[#C75B39]/10 text-[#C75B39]"
+                          : "border-[#1A1A2E]/10 bg-white/40 text-[#1A1A2E]/60"
+                      }`}
+                    >
+                      <span className="font-bold">{h.label}</span>
+                      <span className="ml-1 opacity-60">({h.cm}cm)</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[10px] text-[#1A1A2E]/40">
+                  Over 5&apos;9&quot; / 175 cm? Type the exact number above — most Nigerian adults are
+                  between 5&apos;0&quot; and 5&apos;9&quot;.
                 </p>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {HEIGHT_PRESETS.map((h) => (
-                  <button
-                    key={h}
-                    onClick={() => setHeightCm(h)}
-                    className={`rounded-xl border py-2 text-xs font-medium ${
-                      heightCm === h
-                        ? "border-[#C75B39] bg-[#C75B39]/10 text-[#C75B39]"
-                        : "border-[#1A1A2E]/10 bg-white/40 text-[#1A1A2E]/60"
-                    }`}
-                  >
-                    {h} cm
-                  </button>
-                ))}
+
+              {/* "Not sure?" path — route them to the card calibration */}
+              <div className="mt-4 rounded-xl border border-amber-300/40 bg-amber-50/50 p-3">
+                <p className="text-xs font-semibold text-amber-800">
+                  Don&apos;t know your exact height?
+                </p>
+                <p className="mt-0.5 text-[11px] text-amber-700/85">
+                  Guessing will make your measurements wrong. Skip the height step and
+                  hold a credit card during the photo instead — that locks the scale
+                  precisely without needing your height at all.
+                </p>
+                <button
+                  onClick={() => {
+                    // Set a neutral fallback height so the math still runs, but force the
+                    // card path. The card scale supersedes the height anyway.
+                    setHeightCm(165);
+                    setUseCard(true);
+                    if (sessionInfo?.clientGender) setStep("card-prompt");
+                    else setStep("gender");
+                  }}
+                  className="mt-2 text-[11px] font-semibold text-amber-900 underline underline-offset-2"
+                >
+                  I&apos;m not sure — use a credit card instead →
+                </button>
               </div>
+
               <div className="mt-auto pt-6">
                 <button
                   disabled={!heightCm || Number(heightCm) < 120 || Number(heightCm) > 220}
@@ -432,29 +526,67 @@ export default function ClientScanPage() {
             <motion.div key="card-prompt" {...stepVariants} className="flex flex-1 flex-col">
               <div className="text-center">
                 <CreditCard className="mx-auto h-10 w-10 text-[#C75B39]" />
-                <h2 className="mt-3 text-lg font-bold text-[#1A1A2E]">Boost accuracy with a card</h2>
+                <h2 className="mt-3 text-lg font-bold text-[#1A1A2E]">
+                  Calibrate the scan with a card
+                </h2>
                 <p className="mt-1 text-sm text-[#1A1A2E]/55">
-                  Optional — hold any credit/debit card flat against your chest in the front photo.
-                  We use its known size (85.6×54 mm) to calibrate the scale precisely.
+                  Recommended — every credit/debit/national-ID card is the same size
+                  (85.6 × 54 mm). Hold one flat against your chest in the front photo
+                  and we lock the measurement scale precisely. <strong>±1 cm typical.</strong>
                 </p>
               </div>
-              <ul className="mt-5 space-y-2 text-sm text-[#1A1A2E]/65">
-                <li>• Hold the card flat, fully visible in front view</li>
-                <li>• You&apos;ll mark its corners after the photo</li>
-                <li>• Skip if you don&apos;t have one — height fallback still works</li>
+
+              {/* Visual comparison: card vs height-only */}
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-emerald-300/40 bg-emerald-50/60 p-3">
+                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                    <Sparkles className="h-3 w-3" /> With card
+                  </p>
+                  <p className="mt-1 text-xl font-bold text-emerald-700">±1 cm</p>
+                  <p className="mt-0.5 text-[11px] text-emerald-700/70">
+                    Trustworthy for fitted garments.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-orange-300/50 bg-orange-50/60 p-3">
+                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-orange-700">
+                    <AlertTriangle className="h-3 w-3" /> Height only
+                  </p>
+                  <p className="mt-1 text-xl font-bold text-orange-700">±5–10 cm</p>
+                  <p className="mt-0.5 text-[11px] text-orange-700/70">
+                    Verify with a tape before cutting fabric.
+                  </p>
+                </div>
+              </div>
+
+              <ul className="mt-4 space-y-1.5 text-xs text-[#1A1A2E]/65">
+                <li className="flex items-start gap-1.5">
+                  <span className="text-[#C75B39]">•</span>
+                  Hold the card flat, fully visible, on your chest for the front photo
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-[#C75B39]">•</span>
+                  You&apos;ll mark its corners after the photo (2 taps)
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-[#C75B39]">•</span>
+                  No card? You can still continue — but we&apos;ll ask for one tape
+                  measurement at the end to verify accuracy.
+                </li>
               </ul>
-              <div className="mt-auto flex gap-3 pt-6">
-                <button
-                  onClick={() => { setUseCard(false); setStep("front-capture"); }}
-                  className="flex h-12 flex-1 items-center justify-center rounded-2xl border border-[#1A1A2E]/10 bg-white/40 text-sm font-medium text-[#1A1A2E]/70 active:bg-white/60"
-                >
-                  Skip
-                </button>
+
+              <div className="mt-auto flex flex-col gap-2 pt-6">
                 <button
                   onClick={() => { setUseCard(true); setStep("front-capture"); }}
-                  className="flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] text-sm font-semibold text-white shadow-lg active:scale-[0.98]"
+                  className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] text-sm font-semibold text-white shadow-lg active:scale-[0.98]"
                 >
-                  I have a card
+                  <CreditCard className="h-4 w-4" />
+                  I have a card — use it (recommended)
+                </button>
+                <button
+                  onClick={() => { setUseCard(false); setStep("front-capture"); }}
+                  className="flex h-11 items-center justify-center rounded-2xl border border-[#1A1A2E]/10 bg-white/40 text-xs font-medium text-[#1A1A2E]/55 active:bg-white/60"
+                >
+                  Continue without a card · I&apos;ll tape-verify at the end
                 </button>
               </div>
             </motion.div>
@@ -463,10 +595,13 @@ export default function ClientScanPage() {
           {step === "front-capture" && (
             <motion.div key="front-capture" {...stepVariants} className="flex flex-1 flex-col">
               <h2 className="text-center text-lg font-bold text-[#1A1A2E]">Front view</h2>
-              <p className="mt-1 mb-3 text-center text-xs text-[#1A1A2E]/55">
+              <p className="mt-1 mb-2 text-center text-xs text-[#1A1A2E]/55">
                 Stand straight, arms slightly out, full body in frame.
                 {useCard && " Hold the card on your chest."}
               </p>
+              <div className="mb-3 flex justify-center">
+                <AccuracyChip mode={useCard ? "card" : "verified"} />
+              </div>
               <CaptureModeToggle mode={captureMode} onChange={setCaptureMode} />
               {captureMode === "live" ? (
                 <LiveCaptureView
@@ -508,9 +643,12 @@ export default function ClientScanPage() {
           {step === "side-capture" && (
             <motion.div key="side-capture" {...stepVariants} className="flex flex-1 flex-col">
               <h2 className="text-center text-lg font-bold text-[#1A1A2E]">Side view</h2>
-              <p className="mt-1 mb-3 text-center text-xs text-[#1A1A2E]/55">
+              <p className="mt-1 mb-2 text-center text-xs text-[#1A1A2E]/55">
                 Turn 90° (left or right). Stand naturally.
               </p>
+              <div className="mb-3 flex justify-center">
+                <AccuracyChip mode={useCard ? "card" : "verified"} />
+              </div>
               <CaptureModeToggle mode={captureMode} onChange={setCaptureMode} />
               {captureMode === "live" ? (
                 <LiveCaptureView
@@ -540,6 +678,21 @@ export default function ClientScanPage() {
                 />
               </div>
             </motion.div>
+          )}
+
+          {step === "tape-verify" && measurementResult && (
+            <TapeVerifyStep
+              result={measurementResult}
+              warnings={plausibilityWarnings}
+              onSaveAfterRecalibrate={(rec, warns) => persistResult(rec, warns)}
+              onSkip={() => persistResult(measurementResult, plausibilityWarnings)}
+              onRescan={() => {
+                setFrontFrame(null);
+                setSideFrame(null);
+                setMeasurementResult(null);
+                setStep("card-prompt");
+              }}
+            />
           )}
 
           {step === "complete" && measurementResult && (
@@ -684,7 +837,7 @@ function ResultsList({ result }: { result: MeasurementResult }) {
             </div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm font-semibold text-[#1A1A2E]">
-                {v.toFixed(1)}"
+                {v.toFixed(1)}&quot;
               </span>
               <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>
                 {Math.round(c * 100)}%
@@ -762,5 +915,163 @@ function UploadIcon(props: React.SVGProps<SVGSVGElement>) {
       <polyline points="17 8 12 3 7 8" />
       <line x1="12" x2="12" y1="3" y2="15" />
     </svg>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  TapeVerifyStep                                                              */
+/*                                                                              */
+/*  Gates the save when no card was used. The single biggest production       */
+/*  bug — "way bigger measurements" — was caused by self-reported height      */
+/*  being wrong with no second anchor. We block save here unless the user    */
+/*  EITHER enters one tape value (we then rescale every circumference) OR    */
+/*  explicitly skips with a warning shown.                                    */
+/* -------------------------------------------------------------------------- */
+
+function TapeVerifyStep({
+  result,
+  warnings,
+  onSaveAfterRecalibrate,
+  onSkip,
+  onRescan,
+}: {
+  result: MeasurementResult;
+  warnings: MeasurementWarning[];
+  onSaveAfterRecalibrate: (rec: MeasurementResult, warns: MeasurementWarning[]) => void;
+  onSkip: () => void;
+  onRescan: () => void;
+}) {
+  const [field, setField] = useState<"waist" | "bust" | "hips">("waist");
+  const [tapeInput, setTapeInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const aiValue = result.measurements[field];
+
+  function handleApply() {
+    setError(null);
+    const inches = parseInchesInput(tapeInput);
+    if (inches == null || inches <= 0) {
+      setError(`Enter a number — e.g. 32 or 32.5 or 32 1/2`);
+      return;
+    }
+    const out = recalibrateWithTape(result.measurements, field, inches);
+    if (!out) {
+      setError(
+        `That value looks off vs the AI's ${typeof aiValue === "number" ? aiValue.toFixed(1) : ""}". Double-check the unit and tape position.`,
+      );
+      return;
+    }
+    setSubmitting(true);
+    onSaveAfterRecalibrate(
+      {
+        ...result,
+        measurements: out.recalibrated,
+        scaleSource: result.scaleSource, // unchanged — still "height" — but values now anchored
+      },
+      warnings,
+    );
+  }
+
+  return (
+    <motion.div {...stepVariants} className="flex flex-1 flex-col">
+      <div className="text-center">
+        <span className="inline-flex items-center gap-2 rounded-full border border-orange-300/50 bg-orange-50/70 px-3 py-1 text-[11px] font-semibold text-orange-700">
+          <AlertTriangle className="h-3 w-3" />
+          Verify one measurement before we save
+        </span>
+        <h2 className="mt-3 text-lg font-bold text-[#1A1A2E]">
+          One tape check — keeps the scan accurate
+        </h2>
+        <p className="mt-1 text-sm text-[#1A1A2E]/55">
+          Because you didn&apos;t use a credit card, the AI is using your height
+          as the scale. A 5&nbsp;cm error in height means every measurement is
+          off by ~3%. <strong className="text-[#1A1A2E]/85">One tape check fixes the whole scan.</strong>
+        </p>
+      </div>
+
+      {/* Field picker */}
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        {(["waist", "bust", "hips"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => { setField(f); setTapeInput(""); setError(null); }}
+            className={`rounded-xl border py-2 text-xs font-semibold capitalize ${
+              field === f
+                ? "border-[#C75B39] bg-[#C75B39]/10 text-[#C75B39]"
+                : "border-[#1A1A2E]/10 bg-white/40 text-[#1A1A2E]/60"
+            }`}
+          >
+            {f}
+            {typeof result.measurements[f] === "number" && (
+              <span className="ml-1 opacity-60">
+                ({(result.measurements[f] as number).toFixed(1)}&quot;)
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tape input */}
+      <div className="mt-4">
+        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#1A1A2E]/45">
+          Your tape value for {field} (inches)
+        </label>
+        <input
+          autoFocus
+          type="text"
+          inputMode="decimal"
+          value={tapeInput}
+          onChange={(e) => setTapeInput(e.target.value)}
+          placeholder={`e.g. ${field === "waist" ? "28" : field === "bust" ? "36" : "38"} or 28 1/2`}
+          className="glass-input flex h-12 w-full rounded-xl px-4 text-xl font-bold focus-visible:outline-none"
+        />
+        <p className="mt-1 text-[11px] text-[#1A1A2E]/45">
+          Tap the {field} with a tape measure → enter what it reads in inches.
+        </p>
+      </div>
+
+      {/* AI vs tape diff hint (only after the user enters something) */}
+      {tapeInput && typeof aiValue === "number" && parseInchesInput(tapeInput) ? (
+        <div className="mt-2 rounded-lg bg-[#1A1A2E]/[0.04] px-3 py-2 text-[11px] text-[#1A1A2E]/65">
+          {(() => {
+            const tape = parseInchesInput(tapeInput) || 0;
+            const pct = ((tape - aiValue) / aiValue) * 100;
+            const abs = Math.abs(pct);
+            if (abs < 3) return `Close match — small correction (${pct > 0 ? "+" : ""}${pct.toFixed(0)}%).`;
+            if (abs < 10) return `Moderate correction — every measurement will adjust by ~${pct.toFixed(0)}%.`;
+            return `Big correction (${pct > 0 ? "+" : ""}${pct.toFixed(0)}%) — height was likely wrong. The fix will rescale the whole scan.`;
+          })()}
+        </div>
+      ) : null}
+
+      {error && (
+        <p className="mt-2 rounded-lg bg-red-50/70 px-3 py-2 text-xs text-red-700">{error}</p>
+      )}
+
+      <div className="mt-auto flex flex-col gap-2 pt-6">
+        <button
+          onClick={handleApply}
+          disabled={submitting || !tapeInput}
+          className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] text-sm font-semibold text-white shadow-lg active:scale-[0.98] disabled:opacity-50"
+        >
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ruler className="h-4 w-4" />}
+          Verify & save
+        </button>
+        <button
+          onClick={onRescan}
+          className="flex h-11 items-center justify-center rounded-2xl border border-[#1A1A2E]/10 bg-white/40 text-xs font-medium text-[#1A1A2E]/65 active:bg-white/60"
+        >
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          Rescan with a credit card (most accurate)
+        </button>
+        <button
+          onClick={onSkip}
+          className="text-[10px] font-medium text-[#1A1A2E]/40 underline underline-offset-2"
+        >
+          Skip · save anyway (low confidence)
+        </button>
+      </div>
+    </motion.div>
   );
 }
