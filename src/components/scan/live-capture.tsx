@@ -101,11 +101,32 @@ export function LiveCaptureView({ view, onCaptured, onCancel }: LiveCaptureViewP
 
     start();
 
-    // Device pitch via DeviceOrientation
+    // Device pitch via DeviceOrientation. Phone tilt powers the camera-height
+    // nudge ("phone tilted up — raise it" / "tilted down — lower it"). On
+    // iOS 13+, DeviceOrientationEvent requires explicit permission via a
+    // user gesture; if it's never granted we silently degrade — pose-quality
+    // still works, just without the pitch dimension.
     const onOrient = (e: DeviceOrientationEvent) => {
       if (e.beta != null) devicePitchRef.current = e.beta - 90; // 0 when phone is upright
     };
-    window.addEventListener("deviceorientation", onOrient);
+    type IOSPermissionAPI = { requestPermission?: () => Promise<"granted" | "denied"> };
+    const DOE = (typeof DeviceOrientationEvent !== "undefined"
+      ? (DeviceOrientationEvent as unknown as IOSPermissionAPI)
+      : undefined);
+    if (DOE && typeof DOE.requestPermission === "function") {
+      // iOS 13+ — request on first user interaction with the capture page.
+      // We attach the listener regardless; if permission is denied the
+      // event just never fires and the pitch nudge silently disables.
+      DOE.requestPermission()
+        .then((state) => {
+          if (state === "granted") {
+            window.addEventListener("deviceorientation", onOrient);
+          }
+        })
+        .catch(() => { /* ignore — silent degrade */ });
+    } else {
+      window.addEventListener("deviceorientation", onOrient);
+    }
 
     return () => {
       cancelled = true;

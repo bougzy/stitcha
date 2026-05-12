@@ -125,26 +125,75 @@ export function CardCalibration({ imageUrl, onDone, onCancel }: CardCalibrationP
               </span>
             </span>
           ))}
-        {imgSize && pts.length === 2 && (
-          <svg className="pointer-events-none absolute inset-0 h-full w-full">
-            <line
-              x1={`${(pts[0].x / imgSize.w) * 100}%`}
-              y1={`${(pts[0].y / imgSize.h) * 100}%`}
-              x2={`${(pts[1].x / imgSize.w) * 100}%`}
-              y2={`${(pts[1].y / imgSize.h) * 100}%`}
-              stroke="#C75B39"
-              strokeWidth="2"
-              strokeDasharray="4 4"
-            />
-          </svg>
-        )}
+        {imgSize && pts.length === 2 && (() => {
+          // Render the implied card rectangle so customers see whether their
+          // taps actually cover the card. The card is the BOUNDING BOX of the
+          // two opposite corners they picked.
+          const minX = Math.min(pts[0].x, pts[1].x);
+          const minY = Math.min(pts[0].y, pts[1].y);
+          const maxX = Math.max(pts[0].x, pts[1].x);
+          const maxY = Math.max(pts[0].y, pts[1].y);
+          const w = maxX - minX;
+          const h = maxY - minY;
+          // ID-1 cards are 1.586:1 (long/short). Either orientation is fine.
+          const aspect = Math.max(w, h) / Math.max(1, Math.min(w, h));
+          const aspectOk = aspect >= 1.4 && aspect <= 1.8;
+          const stroke = aspectOk ? "#10b981" : "#f59e0b";
+          return (
+            <svg className="pointer-events-none absolute inset-0 h-full w-full">
+              {/* Diagonal line they tapped */}
+              <line
+                x1={`${(pts[0].x / imgSize.w) * 100}%`}
+                y1={`${(pts[0].y / imgSize.h) * 100}%`}
+                x2={`${(pts[1].x / imgSize.w) * 100}%`}
+                y2={`${(pts[1].y / imgSize.h) * 100}%`}
+                stroke={stroke}
+                strokeWidth="1.5"
+                strokeDasharray="3 3"
+                opacity="0.6"
+              />
+              {/* Implied card rectangle */}
+              <rect
+                x={`${(minX / imgSize.w) * 100}%`}
+                y={`${(minY / imgSize.h) * 100}%`}
+                width={`${(w / imgSize.w) * 100}%`}
+                height={`${(h / imgSize.h) * 100}%`}
+                stroke={stroke}
+                strokeWidth="3"
+                fill={aspectOk ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)"}
+              />
+            </svg>
+          );
+        })()}
       </div>
 
       {/* Hint */}
       <p className="mt-3 text-center text-xs text-[#1A1A2E]/45">
         {pts.length === 0 && "Tap the first corner of the card"}
         {pts.length === 1 && "Now tap the opposite corner"}
-        {pts.length === 2 && "Looks good. Confirm or reset to retry."}
+        {pts.length === 2 && (() => {
+          const minX = Math.min(pts[0].x, pts[1].x);
+          const minY = Math.min(pts[0].y, pts[1].y);
+          const maxX = Math.max(pts[0].x, pts[1].x);
+          const maxY = Math.max(pts[0].y, pts[1].y);
+          const w = maxX - minX;
+          const h = maxY - minY;
+          const aspect = Math.max(w, h) / Math.max(1, Math.min(w, h));
+          if (aspect >= 1.4 && aspect <= 1.8) {
+            return (
+              <span className="text-emerald-700">
+                ✓ Card shape looks right — confirm to lock the scale.
+              </span>
+            );
+          }
+          return (
+            <span className="text-amber-700">
+              ⚠ The green rectangle doesn&apos;t look like a card shape (aspect{" "}
+              {aspect.toFixed(2)}). Reset and tap two opposite corners of the
+              physical card.
+            </span>
+          );
+        })()}
       </p>
 
       {/* Actions */}

@@ -64,9 +64,15 @@ export interface MeasurementResult {
   aiEstimatedFields: string[];
   /** "card" | "height" — which scale source was used */
   scaleSource?: "card" | "height";
+  /** Soft warnings about the scan (bulky clothing, etc.) that aren't strict
+   *  failures but suggest the customer/designer verify with tape. */
+  clothingWarnings?: string[];
 }
 
 export type BodyGender = "male" | "female";
+/** Customer self-reports their build so the AI applies the right ratio
+ *  multipliers to fields we infer from population averages. */
+export type BodyType = "slim" | "athletic" | "curvy" | "plus";
 
 /** A captured frame: landmarks + optional segmentation mask + image dims. */
 export interface CapturedFrame {
@@ -153,6 +159,48 @@ const BASE_RATIOS: Record<BodyGender, BodyRatioSet> = {
     kneeCircFactor: 1.12,
   },
 };
+
+/* -------------------------------------------------------------------------- */
+/*  Body-type adjustments                                                       */
+/*                                                                              */
+/*  Customer self-identifies their build; we tweak the population-average      */
+/*  ratios up or down. Mostly affects derived fields (underBust, roundArm,    */
+/*  etc.) where we infer from chest/hip rather than measure the silhouette    */
+/*  directly. For silhouette-based circumferences the mask wins and these    */
+/*  multipliers play a minor role.                                             */
+/* -------------------------------------------------------------------------- */
+
+interface BodyTypeAdjustment {
+  bustMul: number;
+  waistMul: number;
+  hipsMul: number;
+  thighMul: number;
+  /** Adjust the assumed body BMI used for the rough weight estimate. */
+  bmiOffset: number;
+}
+
+const BODY_TYPE_ADJUSTMENTS: Record<BodyType, BodyTypeAdjustment> = {
+  slim:     { bustMul: 0.95, waistMul: 0.90, hipsMul: 0.94, thighMul: 0.92, bmiOffset: -3 },
+  athletic: { bustMul: 0.98, waistMul: 0.95, hipsMul: 0.98, thighMul: 1.00, bmiOffset: -1 },
+  curvy:    { bustMul: 1.05, waistMul: 1.00, hipsMul: 1.08, thighMul: 1.05, bmiOffset: +2 },
+  plus:     { bustMul: 1.12, waistMul: 1.12, hipsMul: 1.15, thighMul: 1.12, bmiOffset: +6 },
+};
+
+function applyBodyType(base: BodyRatioSet, type: BodyType): BodyRatioSet {
+  const adj = BODY_TYPE_ADJUSTMENTS[type];
+  return {
+    ...base,
+    bustFromShoulder:   base.bustFromShoulder   * adj.bustMul,
+    chestFromShoulder:  base.chestFromShoulder  * adj.bustMul,
+    waistFromHipWidth:  base.waistFromHipWidth  * adj.waistMul,
+    hipsFromHipWidth:   base.hipsFromHipWidth   * adj.hipsMul,
+    bustHalfWidthRatio: base.bustHalfWidthRatio * adj.bustMul,
+    waistHalfWidthRatio: base.waistHalfWidthRatio * adj.waistMul,
+    hipHalfWidthRatio:   base.hipHalfWidthRatio   * adj.hipsMul,
+    thighWidthFromHip:   base.thighWidthFromHip   * adj.thighMul,
+    averageBMI:          base.averageBMI + adj.bmiOffset,
+  };
+}
 
 function computeDynamicRatios(
   front: Landmark[],
@@ -298,9 +346,22 @@ export function evaluatePoseQuality(
   if (shoulderTilt > 4 && shoulderTilt < 176)
     issues.push({ code: "subject_tilted", message: "Stand straight, shoulders level" });
 
-  // Phone level
-  if (devicePitchDeg !== undefined && Math.abs(devicePitchDeg) > 8) {
-    issues.push({ code: "phone_tilted", message: "Hold the phone straight up" });
+  // Phone-pitch nudge — directional. Phone tilted UP (looking at ceiling)
+  // means the operator is holding it too low; tilted DOWN means too high.
+  // Beta is 0° when phone is flat, 90° when upright. We pass (beta - 90)
+  // as devicePitchDeg, so 0° = upright, +ve = tilted-back (looking up).
+  if (devicePitchDeg !== undefined) {
+    if (devicePitchDeg > 8) {
+      issues.push({
+        code: "phone_tilted",
+        message: "Phone tilted up — raise it to chest height of the person",
+      });
+    } else if (devicePitchDeg < -8) {
+      issues.push({
+        code: "phone_tilted",
+        message: "Phone tilted down — lower it to chest height of the person",
+      });
+    }
   }
 
   // Arms separated from torso (so silhouette can read body width at chest)
@@ -667,6 +728,7 @@ export function calculateMeasurements(
   heightCm: number,
   gender: BodyGender = "female",
   cardScaleCmPerPx?: number | null,
+  bodyType: BodyType | null = null,
 ): MeasurementResult {
   const fLm = front.landmarks;
   const sLm = side?.landmarks;
@@ -675,7 +737,8 @@ export function calculateMeasurements(
   const sW = side?.width ?? 0;
   const sH = side?.height ?? 0;
 
-  const R = computeDynamicRatios(fLm, gender, fW, fH);
+  const dyn = computeDynamicRatios(fLm, gender, fW, fH);
+  const R = bodyType ? applyBodyType(dyn, bodyType) : dyn;
 
   /* ---- Scale: card beats height every time ---- */
   let scale: number; // cm per pixel of the FRONT image
@@ -771,6 +834,42 @@ export function calculateMeasurements(
   const bustWidthCm = isFinite(bustWidthMaskCm) ? bustWidthMaskCm : shoulderCm; // shoulder is decent proxy
   const waistWidthCm = isFinite(waistWidthMaskCm) ? waistWidthMaskCm : hipWidthFallbackCm * 0.92;
   const hipWidthCm = isFinite(hipWidthMaskCm) ? hipWidthMaskCm : hipWidthFallbackCm;
+
+  /* -------------------------------------------------------------------- */
+  /*  Bulky-clothing detection                                              */
+  /*                                                                        */
+  /*  If the silhouette is much wider than the skeleton joint distances     */
+  /*  suggest, the customer is wearing loose clothing and the mask is      */
+  /*  capturing fabric, not body. Threshold tuned so a fitted shirt        */
+  /*  comfortably passes (ratio ~1.10-1.20) but an oversized blouse fails. */
+  /* -------------------------------------------------------------------- */
+  const clothingWarnings: string[] = [];
+  if (front.segmentationMask && shoulderCm > 0) {
+    // Bust mask should be roughly equal to shoulder width for fitted clothing.
+    // Above 1.30× = warn. Above 1.45× = strong warn.
+    if (isFinite(bustWidthMaskCm)) {
+      const ratio = bustWidthMaskCm / shoulderCm;
+      if (ratio > 1.45) {
+        clothingWarnings.push(
+          "Top looks loose — bust may read 4-6\" wider than your body. Re-scan in a fitted shirt for accuracy.",
+        );
+      } else if (ratio > 1.30) {
+        clothingWarnings.push(
+          "Top may be slightly loose — bust could be 2-3\" wider than your body.",
+        );
+      }
+    }
+    // Hip mask should be roughly equal to hip joint width × 1.15 (hips flare).
+    // Above 1.55 = warn.
+    if (isFinite(hipWidthMaskCm) && hipWidthFallbackCm > 0) {
+      const ratio = hipWidthMaskCm / hipWidthFallbackCm;
+      if (ratio > 1.55) {
+        clothingWarnings.push(
+          "Bottoms / dress looks loose — hip width may read wider than your body.",
+        );
+      }
+    }
+  }
 
   /* ---- Side-view depth (silhouette FIRST, factor fallback) ---- */
   function sideWidthCmAt(yNorm: number): number {
@@ -983,6 +1082,7 @@ export function calculateMeasurements(
     confidenceScores: confScores,
     aiEstimatedFields,
     scaleSource,
+    clothingWarnings: clothingWarnings.length > 0 ? clothingWarnings : undefined,
   };
 }
 

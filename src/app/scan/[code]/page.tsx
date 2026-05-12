@@ -29,6 +29,7 @@ import {
   calculateMeasurements,
   type MeasurementResult,
   type BodyGender,
+  type BodyType,
   type CapturedFrame,
 } from "@/lib/body-measurement";
 import { checkPlausibility, type MeasurementWarning } from "@/lib/measurement-plausibility";
@@ -50,6 +51,7 @@ type ScanStep =
   | "guest-info"
   | "height"
   | "gender"
+  | "body-type"
   | "card-prompt"
   | "front-capture"
   | "card-calibrate"
@@ -112,6 +114,7 @@ export default function ClientScanPage() {
   const [guestPhone, setGuestPhone] = useState("");
   const [guestGender, setGuestGender] = useState<BodyGender>("female");
   const [selectedGender, setSelectedGender] = useState<BodyGender>("female");
+  const [bodyType, setBodyType] = useState<BodyType | null>(null);
   const [heightCm, setHeightCm] = useState<number | "">("");
 
   // Capture artefacts
@@ -229,6 +232,7 @@ export default function ClientScanPage() {
         Number(heightCm),
         gender,
         cardScaleCmPerPx,
+        bodyType,
       );
       setAnalyzeProgress(60);
 
@@ -261,7 +265,7 @@ export default function ClientScanPage() {
     }
   }, [
     frontFrame, sideFrame, heightCm, sessionInfo, guestGender, selectedGender,
-    cardScaleCmPerPx, persistResult,
+    cardScaleCmPerPx, bodyType, persistResult,
   ]);
 
   /* Auto-run when both frames ready */
@@ -465,7 +469,7 @@ export default function ClientScanPage() {
                     // card path. The card scale supersedes the height anyway.
                     setHeightCm(165);
                     setUseCard(true);
-                    if (sessionInfo?.clientGender) setStep("card-prompt");
+                    if (sessionInfo?.clientGender) setStep("body-type");
                     else setStep("gender");
                   }}
                   className="mt-2 text-[11px] font-semibold text-amber-900 underline underline-offset-2"
@@ -478,7 +482,7 @@ export default function ClientScanPage() {
                 <button
                   disabled={!heightCm || Number(heightCm) < 120 || Number(heightCm) > 220}
                   onClick={() => {
-                    if (sessionInfo?.clientGender) setStep("card-prompt");
+                    if (sessionInfo?.clientGender) setStep("body-type");
                     else setStep("gender");
                   }}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4 text-base font-semibold text-white shadow-lg active:scale-[0.98] disabled:opacity-40"
@@ -513,8 +517,55 @@ export default function ClientScanPage() {
               </div>
               <div className="mt-auto pt-6">
                 <button
-                  onClick={() => setStep("card-prompt")}
+                  onClick={() => setStep("body-type")}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4 text-base font-semibold text-white shadow-lg active:scale-[0.98]"
+                >
+                  Continue <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {step === "body-type" && (
+            <motion.div key="body-type" {...stepVariants} className="flex flex-1 flex-col">
+              <h2 className="text-center text-lg font-bold text-[#1A1A2E]">Your build</h2>
+              <p className="mt-1 text-center text-sm text-[#1A1A2E]/55">
+                This helps the AI infer the small details (under-bust, round arm, etc.)
+                more accurately. Pick the closest match.
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                {([
+                  { id: "slim",     emoji: "🟢", label: "Slim",     desc: "Narrow build" },
+                  { id: "athletic", emoji: "💪", label: "Athletic", desc: "Toned, broad" },
+                  { id: "curvy",    emoji: "👗", label: "Curvy",    desc: "Hourglass shape" },
+                  { id: "plus",     emoji: "💎", label: "Plus-size", desc: "Fuller build" },
+                ] as const).map((b) => (
+                  <button
+                    key={b.id}
+                    onClick={() => setBodyType(b.id)}
+                    className={`flex flex-col items-center justify-center gap-1 rounded-2xl border p-4 text-center transition-all ${
+                      bodyType === b.id
+                        ? "border-[#C75B39] bg-[#C75B39]/10"
+                        : "border-[#1A1A2E]/10 bg-white/40 hover:border-[#C75B39]/30"
+                    }`}
+                  >
+                    <span className="text-3xl">{b.emoji}</span>
+                    <span className="text-sm font-semibold text-[#1A1A2E]">{b.label}</span>
+                    <span className="text-[10px] text-[#1A1A2E]/55">{b.desc}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => { setBodyType(null); setStep("card-prompt"); }}
+                className="mt-3 text-center text-[11px] font-medium text-[#1A1A2E]/45 underline underline-offset-2"
+              >
+                Not sure — skip this step
+              </button>
+              <div className="mt-auto pt-6">
+                <button
+                  onClick={() => setStep("card-prompt")}
+                  disabled={!bodyType}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#C75B39] to-[#b14a2b] px-6 py-4 text-base font-semibold text-white shadow-lg active:scale-[0.98] disabled:opacity-40"
                 >
                   Continue <ChevronRight className="h-5 w-5" />
                 </button>
@@ -709,6 +760,24 @@ export default function ClientScanPage() {
               </div>
 
               <ResultsList result={measurementResult} />
+
+              {/* Bulky-clothing warnings — separate channel so they're harder
+                  to miss than the silent plausibility chips */}
+              {measurementResult.clothingWarnings && measurementResult.clothingWarnings.length > 0 && (
+                <div className="mt-4 space-y-1">
+                  {measurementResult.clothingWarnings.map((w, i) => (
+                    <p
+                      key={i}
+                      className="flex items-start gap-2 rounded-xl border border-orange-300/50 bg-orange-50/70 px-3 py-2 text-[11px] font-medium text-orange-800"
+                    >
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span>
+                        <strong>Clothing alert:</strong> {w}
+                      </span>
+                    </p>
+                  ))}
+                </div>
+              )}
 
               {plausibilityWarnings.length > 0 && (
                 <div className="mt-4 space-y-1">
@@ -945,20 +1014,19 @@ function TapeVerifyStep({
   const [tapeInput, setTapeInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Sanity-check confirmation: when the entered tape value is wildly off
+   *  vs the AI estimate (>20%), surface a warning before applying the
+   *  rescale. A wrong tape value is worse than no tape because the
+   *  recalibration anchors EVERY circumference on it. */
+  const [pendingConfirm, setPendingConfirm] = useState<null | { tape: number; pct: number }>(null);
 
   const aiValue = result.measurements[field];
 
-  function handleApply() {
-    setError(null);
-    const inches = parseInchesInput(tapeInput);
-    if (inches == null || inches <= 0) {
-      setError(`Enter a number — e.g. 32 or 32.5 or 32 1/2`);
-      return;
-    }
-    const out = recalibrateWithTape(result.measurements, field, inches);
+  function commit(tape: number) {
+    const out = recalibrateWithTape(result.measurements, field, tape);
     if (!out) {
       setError(
-        `That value looks off vs the AI's ${typeof aiValue === "number" ? aiValue.toFixed(1) : ""}". Double-check the unit and tape position.`,
+        `That value is more than 2× off vs the AI's ${typeof aiValue === "number" ? aiValue.toFixed(1) : ""}\". Double-check the unit and tape position.`,
       );
       return;
     }
@@ -971,6 +1039,26 @@ function TapeVerifyStep({
       },
       warnings,
     );
+  }
+
+  function handleApply() {
+    setError(null);
+    const inches = parseInchesInput(tapeInput);
+    if (inches == null || inches <= 0) {
+      setError(`Enter a number — e.g. 32 or 32.5 or 32 1/2`);
+      return;
+    }
+    // Sanity check — if the entered value is >20% off the AI estimate, hold
+    // the rescale and force the customer to confirm. Common causes: typo,
+    // wrong body part, measuring over thick clothing, or genuine height bug.
+    if (typeof aiValue === "number" && aiValue > 0) {
+      const pct = ((inches - aiValue) / aiValue) * 100;
+      if (Math.abs(pct) > 20) {
+        setPendingConfirm({ tape: inches, pct });
+        return;
+      }
+    }
+    commit(inches);
   }
 
   return (
@@ -989,6 +1077,23 @@ function TapeVerifyStep({
           off by ~3%. <strong className="text-[#1A1A2E]/85">One tape check fixes the whole scan.</strong>
         </p>
       </div>
+
+      {/* Bulky-clothing warning — only renders when the silhouette heuristic
+          flagged it. Surfaces it BEFORE the customer picks a tape field so
+          they can decide to rescan in fitted clothing instead. */}
+      {result.clothingWarnings && result.clothingWarnings.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {result.clothingWarnings.map((w, i) => (
+            <p
+              key={i}
+              className="flex items-start gap-2 rounded-xl border border-orange-300/50 bg-orange-50/70 px-3 py-2 text-[11px] font-medium text-orange-800"
+            >
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+              <span><strong>Clothing alert:</strong> {w}</span>
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* Field picker */}
       <div className="mt-5 grid grid-cols-3 gap-2">
@@ -1047,6 +1152,46 @@ function TapeVerifyStep({
 
       {error && (
         <p className="mt-2 rounded-lg bg-red-50/70 px-3 py-2 text-xs text-red-700">{error}</p>
+      )}
+
+      {/* Sanity-check confirmation — only renders when the entered tape value
+          is wildly off the AI estimate */}
+      {pendingConfirm && (
+        <div className="mt-3 rounded-xl border-2 border-orange-400/70 bg-orange-50/80 p-4">
+          <p className="flex items-center gap-1.5 text-xs font-bold text-orange-800">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Big difference — are you sure?
+          </p>
+          <p className="mt-1.5 text-xs text-orange-900/85">
+            You entered <strong>{pendingConfirm.tape.toFixed(1)}&quot;</strong> for {field},
+            but the AI thinks it&apos;s {(aiValue as number).toFixed(1)}&quot;. That&apos;s
+            a <strong>{pendingConfirm.pct > 0 ? "+" : ""}{pendingConfirm.pct.toFixed(0)}%</strong>{" "}
+            correction — every other circumference will rescale by the same factor.
+          </p>
+          <ul className="mt-2 space-y-0.5 text-[11px] text-orange-900/75">
+            <li>• Did you measure the right body part?</li>
+            <li>• Was the tape pulled tight against skin (not over clothes)?</li>
+            <li>• Did you type the right number?</li>
+          </ul>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => { setPendingConfirm(null); setTapeInput(""); }}
+              className="flex-1 rounded-lg border border-orange-400/40 bg-white/60 px-3 py-2 text-xs font-semibold text-orange-900"
+            >
+              Let me re-measure
+            </button>
+            <button
+              onClick={() => {
+                const t = pendingConfirm.tape;
+                setPendingConfirm(null);
+                commit(t);
+              }}
+              className="flex-1 rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white"
+            >
+              Yes, apply
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="mt-auto flex flex-col gap-2 pt-6">
