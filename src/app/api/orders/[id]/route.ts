@@ -210,6 +210,45 @@ export async function PUT(
         details: `Status changed to "${update.status}"`,
         metadata: { newStatus: update.status, title: order.title },
       });
+
+      // If status transitions to "ready" or "delivered" AND the customer
+      // opted into a notification, fire a Notification to the designer
+      // with a one-tap wa.me deep link to message the customer.
+      const newStatus = update.status as string;
+      const isReadyish = newStatus === "ready" || newStatus === "delivered";
+      const orderDoc = order as unknown as Record<string, unknown>;
+      const optedIn = !!orderDoc.notifyWhenReady;
+      const alreadySent = !!orderDoc.notifyReadySentAt;
+      if (isReadyish && optedIn && !alreadySent) {
+        const NotifMod = (await import("@/lib/models/notification")).Notification;
+        const clientInfo = orderDoc.client as
+          | { name?: string; phone?: string }
+          | undefined;
+        const phoneClean = (clientInfo?.phone || "").replace(/\D/g, "");
+        const phone234 = phoneClean.startsWith("0")
+          ? "234" + phoneClean.slice(1)
+          : phoneClean.startsWith("234")
+          ? phoneClean
+          : "234" + phoneClean;
+        const waText =
+          newStatus === "ready"
+            ? `Hi ${clientInfo?.name?.split(" ")[0] || ""}! 🎉 Your *${order.title}* is READY for pickup. Let me know when you'd like to come.`
+            : `Hi ${clientInfo?.name?.split(" ")[0] || ""}! ✅ Your *${order.title}* has been delivered — enjoy! Please reach out if anything needs adjusting.`;
+        const waLink = phoneClean
+          ? `https://wa.me/${phone234}?text=${encodeURIComponent(waText)}`
+          : undefined;
+
+        await NotifMod.create({
+          designerId,
+          type: "system",
+          title: `📣 ${clientInfo?.name || "Your client"} is waiting for "${order.title}"`,
+          message: `They opted into a "tell-me-when-ready" notification on the client portal. Tap to message them now.`,
+          link: waLink || `/orders/${id}`,
+        }).catch(() => { /* non-fatal */ });
+
+        // Stamp so we don't fire it again on subsequent status flips
+        await Order.updateOne({ _id: id }, { $set: { notifyReadySentAt: new Date() } });
+      }
     }
 
     // Transform populated clientId to client field

@@ -47,6 +47,12 @@ export interface IOrder extends Document {
   feedLikeMilestones?: number[];
   /** Times this post has appeared in a Discover feed response (rough impressions). */
   feedImpressions?: number;
+  /** Customer-side toggle: notify the designer (who messages the customer)
+   *  when this order hits "ready" or "delivered". Opt-in via portal page. */
+  notifyWhenReady?: boolean;
+  /** Server-set once we've already fired the "ready"-stage notification, so
+   *  cycling status doesn't spam the designer. */
+  notifyReadySentAt?: Date;
   /** Paid Discover boost — pinned to the top until this date. */
   boostedUntil?: Date;
   /** Lifetime number of boosts purchased on this post (analytics). */
@@ -102,6 +108,8 @@ const OrderSchema = new Schema<IOrder>(
     feedLikes: { type: Number, default: 0, min: 0 },
     feedLikeMilestones: { type: [Number], default: [] },
     feedImpressions: { type: Number, default: 0, min: 0 },
+    notifyWhenReady: { type: Boolean, default: false },
+    notifyReadySentAt: { type: Date },
     boostedUntil: { type: Date, index: true },
     boostCount: { type: Number, default: 0, min: 0 },
     statusHistory: [
