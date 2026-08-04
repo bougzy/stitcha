@@ -305,5 +305,13 @@ export const whatsapp = {
         : `Hi ${clientName},\n\nYour order has been confirmed! 🎉\n\n*Order:* ${orderTitle}\n*Total price:* ${amt(price)}\n*Deposit paid:* ${amt(depositPaid)}\n*Balance remaining:* ${amt(balance)}\n*Expected ready date:* ${due}\n\nWe will keep you updated as your order progresses. Thank you! 🙏\n\n— ${businessName}`;
     return waLink(phone, msg);
   },
+
+  /** Wraps arbitrary pre-composed text (e.g. AI-generated messages) into a
+   *  wa.me link, reusing the same phone-cleaning logic as every other
+   *  template above. Used by AI Quotation Generator and future AI features
+   *  that produce free-form copy rather than a fixed template. */
+  custom(phone: string, message: string): string {
+    return waLink(phone, message);
+  },
 };
 

@@ -16,6 +16,7 @@ type Action =
   | "create_scan"
   | "use_ai_scan"
   | "use_ai_pricing"
+  | "use_ai_quotation"
   | "export_pdf"
   | "email_notification"
   | "sms_notification"
@@ -74,8 +75,12 @@ export function checkSubscriptionLimit(
       return { allowed: true, message: "" };
     }
 
-    case "use_ai_pricing": {
-      // Free plan: 5 lifetime trial suggestions, then upgrade
+    case "use_ai_pricing":
+    case "use_ai_quotation": {
+      // Both AI-writing features (price suggestions + quotation messages)
+      // share one monthly "AI assist" pool per plan, tracked by the caller
+      // across both ActivityLog actions.
+      const label = action === "use_ai_quotation" ? "AI quotation" : "AI price suggestion";
       if (planId === "free") {
         const used = lifetimeCount ?? 0;
         const trial = plan.aiPricingLimit; // 5
@@ -83,12 +88,12 @@ export function checkSubscriptionLimit(
           const remaining = trial - used;
           return {
             allowed: true,
-            message: `${remaining} free AI price suggestion${remaining === 1 ? "" : "s"} remaining`,
+            message: `${remaining} free ${label}${remaining === 1 ? "" : "s"} remaining`,
           };
         }
         return {
           allowed: false,
-          message: `You've used your ${trial} free trial AI price suggestions. Upgrade to Plus (₦1,500/month, 50/month) or Pro (unlimited) to keep getting AI pricing help.`,
+          message: `You've used your ${trial} free trial AI assist actions. Upgrade to Plus (₦1,500/month, 50/month) or Pro (unlimited) to keep using AI pricing and quotations.`,
         };
       }
       // Unlimited on Pro
@@ -97,7 +102,7 @@ export function checkSubscriptionLimit(
       if (currentCount !== undefined && currentCount >= plan.aiPricingLimit) {
         return {
           allowed: false,
-          message: `You have used all ${plan.aiPricingLimit} AI price suggestions for this month on the ${plan.name} plan. Upgrade to Pro for unlimited suggestions.`,
+          message: `You have used all ${plan.aiPricingLimit} AI assist actions for this month on the ${plan.name} plan. Upgrade to Pro for unlimited use.`,
         };
       }
       return { allowed: true, message: "" };

@@ -53,9 +53,11 @@ export async function POST(request: NextRequest) {
     const plan = getEffectivePlan(gate.designer);
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
+    const AI_ASSIST_ACTIONS = ["ai_price_suggestion", "ai_quotation"];
+
     const monthlyCount = await ActivityLog.countDocuments({
       designerId,
-      action: "ai_price_suggestion",
+      action: { $in: AI_ASSIST_ACTIONS },
       createdAt: { $gte: startOfMonth },
     });
 
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest) {
     if (plan === "free") {
       lifetimeCount = await ActivityLog.countDocuments({
         designerId,
-        action: "ai_price_suggestion",
+        action: { $in: AI_ASSIST_ACTIONS },
       });
     }
 

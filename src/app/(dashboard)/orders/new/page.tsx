@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Lock, Save, Scissors, ShoppingBag, Sparkles } from "lucide-react";
+import { ArrowLeft, Lock, Save, Scissors, ShoppingBag, Sparkles, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -23,6 +23,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { FabricCalculator } from "@/components/common/fabric-calculator";
+import { whatsapp } from "@/lib/whatsapp";
 import { orderSchema, type OrderInput } from "@/lib/validations";
 import type { Client, Measurements } from "@/types";
 
@@ -83,6 +84,13 @@ function NewOrderForm() {
   } | null>(null);
   const [loadingAiPrice, setLoadingAiPrice] = useState(false);
   const [aiPriceError, setAiPriceError] = useState<string | null>(null);
+
+  // AI Quotation Generator
+  const [showQuoteDialog, setShowQuoteDialog] = useState(false);
+  const [quoteMessage, setQuoteMessage] = useState("");
+  const [loadingQuote, setLoadingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quoteLang, setQuoteLang] = useState<"english" | "pidgin">("english");
 
   // Price is locked for non-owners when editing (unless unlocked via PIN)
   const isPriceLocked = isEditing && !isOwner && !priceUnlocked;
@@ -266,6 +274,63 @@ function NewOrderForm() {
     if (!aiSuggestion) return;
     setValue("price", aiSuggestion.suggestedPrice);
     toast.success("Applied AI-suggested price");
+  };
+
+  /* ---- AI Quotation Generator ---- */
+  const handleGenerateQuote = async (lang: "english" | "pidgin" = quoteLang) => {
+    const garmentType = watch("garmentType");
+    const price = watch("price");
+    const client = clients.find((c) => c._id === watch("clientId"));
+
+    if (!client) {
+      toast.error("Select a client first");
+      return;
+    }
+    if (!garmentType || !price) {
+      toast.error("Add a garment type and price first");
+      return;
+    }
+
+    try {
+      setLoadingQuote(true);
+      setQuoteError(null);
+      setQuoteLang(lang);
+
+      const res = await fetch("/api/ai/quotation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientName: client.name,
+          garmentType,
+          fabric: watch("fabric"),
+          description: watch("description"),
+          price: Number(price),
+          depositPercent: 50,
+          dueDate: watch("dueDate") || undefined,
+          lang,
+        }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        setQuoteError(json.error || "Couldn't generate a quote right now");
+        return;
+      }
+
+      setQuoteMessage(json.data.message);
+      setShowQuoteDialog(true);
+    } catch {
+      setQuoteError("Couldn't reach the quotation assistant. Try again in a moment.");
+    } finally {
+      setLoadingQuote(false);
+    }
+  };
+
+  const sendQuoteViaWhatsApp = () => {
+    const client = clients.find((c) => c._id === watch("clientId"));
+    if (!client || !quoteMessage) return;
+    const url = whatsapp.custom(client.phone, quoteMessage);
+    window.open(url, "_blank");
   };
 
   /* ---- Submit handler ---- */
@@ -541,6 +606,42 @@ function NewOrderForm() {
                 </div>
               </div>
 
+              {/* AI Quotation Generator */}
+              {watchedClientId && watchedGarmentType && watch("price") > 0 && (
+                <div className="rounded-xl border border-[#1A1A2E]/8 bg-[#1A1A2E]/[0.02] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateQuote(quoteLang)}
+                      disabled={loadingQuote}
+                      className="flex items-center gap-2 text-xs font-medium text-[#C75B39] transition-colors hover:text-[#C75B39]/80 disabled:opacity-50"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      {loadingQuote ? "Writing quote..." : "Generate Client Quote (WhatsApp)"}
+                    </button>
+                    <div className="flex overflow-hidden rounded-md border border-[#1A1A2E]/10 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setQuoteLang("english")}
+                        className={`px-2 py-1 ${quoteLang === "english" ? "bg-[#C75B39] text-white" : "bg-transparent text-[#1A1A2E]/50"}`}
+                      >
+                        English
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuoteLang("pidgin")}
+                        className={`px-2 py-1 ${quoteLang === "pidgin" ? "bg-[#C75B39] text-white" : "bg-transparent text-[#1A1A2E]/50"}`}
+                      >
+                        Pidgin
+                      </button>
+                    </div>
+                  </div>
+                  {quoteError && (
+                    <p className="mt-2 text-xs text-destructive">{quoteError}</p>
+                  )}
+                </div>
+              )}
+
               {/* Due date */}
               <Input
                 label="Due Date (Optional)"
@@ -628,6 +729,39 @@ function NewOrderForm() {
                   disabled={pinInput.length !== 4}
                 >
                   Verify PIN
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* AI Quotation Preview Dialog */}
+        <Dialog open={showQuoteDialog} onOpenChange={setShowQuoteDialog}>
+          <DialogContent>
+            <DialogClose />
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-[#C75B39]" />
+                Client Quote
+              </DialogTitle>
+              <DialogDescription>
+                Edit if needed, then send it straight to your client on WhatsApp.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-4">
+              <textarea
+                value={quoteMessage}
+                onChange={(e) => setQuoteMessage(e.target.value)}
+                rows={9}
+                className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-4 py-3 text-sm text-[#1A1A2E] outline-none focus:border-[#C75B39]/40 focus:ring-1 focus:ring-[#C75B39]/20"
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowQuoteDialog(false)}>
+                  Close
+                </Button>
+                <Button onClick={sendQuoteViaWhatsApp}>
+                  <MessageCircle className="h-4 w-4" />
+                  Send via WhatsApp
                 </Button>
               </DialogFooter>
             </div>
