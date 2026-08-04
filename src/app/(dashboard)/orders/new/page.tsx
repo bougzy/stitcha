@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Lock, Save, Scissors, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Lock, Save, Scissors, ShoppingBag, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -71,6 +71,18 @@ function NewOrderForm() {
   const [selectedClientMeasurements, setSelectedClientMeasurements] =
     useState<Measurements | null>(null);
   const [showFabricCalc, setShowFabricCalc] = useState(false);
+
+  // AI Price Suggestion
+  const [aiSuggestion, setAiSuggestion] = useState<{
+    suggestedPrice: number;
+    priceRangeLow: number;
+    priceRangeHigh: number;
+    reasoning: string;
+    factors: string[];
+    source: "ai" | "heuristic";
+  } | null>(null);
+  const [loadingAiPrice, setLoadingAiPrice] = useState(false);
+  const [aiPriceError, setAiPriceError] = useState<string | null>(null);
 
   // Price is locked for non-owners when editing (unless unlocked via PIN)
   const isPriceLocked = isEditing && !isOwner && !priceUnlocked;
@@ -210,6 +222,50 @@ function NewOrderForm() {
     } finally {
       setVerifyingPin(false);
     }
+  };
+
+  /* ---- AI Price Suggestion ---- */
+  const handleGetAiPrice = async () => {
+    const garmentType = watch("garmentType");
+    if (!garmentType) {
+      toast.error("Select a garment type first");
+      return;
+    }
+
+    try {
+      setLoadingAiPrice(true);
+      setAiPriceError(null);
+      setAiSuggestion(null);
+
+      const res = await fetch("/api/ai/price-suggestion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          garmentType,
+          fabric: watch("fabric"),
+          description: watch("description"),
+          measurements: selectedClientMeasurements || undefined,
+        }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        setAiPriceError(json.error || "Couldn't get a price suggestion right now");
+        return;
+      }
+
+      setAiSuggestion(json.data);
+    } catch {
+      setAiPriceError("Couldn't reach the pricing assistant. Try again in a moment.");
+    } finally {
+      setLoadingAiPrice(false);
+    }
+  };
+
+  const applyAiSuggestion = () => {
+    if (!aiSuggestion) return;
+    setValue("price", aiSuggestion.suggestedPrice);
+    toast.success("Applied AI-suggested price");
   };
 
   /* ---- Submit handler ---- */
@@ -367,6 +423,54 @@ function NewOrderForm() {
                         measurements={selectedClientMeasurements}
                         initialGarment={watchedGarmentType.toLowerCase()}
                       />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* AI Price Suggestion */}
+              {watchedGarmentType && !isPriceLocked && (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleGetAiPrice}
+                    disabled={loadingAiPrice}
+                    className="flex items-center gap-2 text-xs font-medium text-[#C75B39] transition-colors hover:text-[#C75B39]/80 disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {loadingAiPrice ? "Thinking..." : "Get AI Price Suggestion"}
+                  </button>
+
+                  {aiPriceError && (
+                    <p className="text-xs text-destructive">{aiPriceError}</p>
+                  )}
+
+                  {aiSuggestion && (
+                    <div className="rounded-xl border border-[#D4A853]/30 bg-gradient-to-br from-[#D4A853]/10 to-[#C75B39]/5 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs text-[#1A1A2E]/55">Suggested price</p>
+                          <p className="text-lg font-bold text-[#1A1A2E]">
+                            ₦{aiSuggestion.suggestedPrice.toLocaleString()}
+                          </p>
+                          <p className="text-[11px] text-[#1A1A2E]/45">
+                            Range: ₦{aiSuggestion.priceRangeLow.toLocaleString()} – ₦{aiSuggestion.priceRangeHigh.toLocaleString()}
+                          </p>
+                        </div>
+                        <Button type="button" size="sm" onClick={applyAiSuggestion}>
+                          Use this price
+                        </Button>
+                      </div>
+                      {aiSuggestion.reasoning && (
+                        <p className="mt-3 text-xs text-[#1A1A2E]/65">{aiSuggestion.reasoning}</p>
+                      )}
+                      {aiSuggestion.factors.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {aiSuggestion.factors.map((f, i) => (
+                            <li key={i} className="text-[11px] text-[#1A1A2E]/50">• {f}</li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )}
                 </div>

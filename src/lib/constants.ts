@@ -175,6 +175,8 @@ export const SUBSCRIPTION_PLANS = [
     clientLimit: -1,
     /** Lifetime trial scans for the Free plan. After this, upgrade or buy credits. */
     scanLimit: 2,
+    /** Lifetime trial AI price suggestions for the Free plan. */
+    aiPricingLimit: 5,
     trialDays: 0,
     badge: null,
     description: "Everything a tailor needs to run their business — plus 2 free AI scans to try. Free forever.",
@@ -191,9 +193,12 @@ export const SUBSCRIPTION_PLANS = [
       "Client portal & shareable cards",
       "Financial dashboard",
       "Fabric & profit calculator",
+      "AI price suggestions (50/month)",
     ],
     clientLimit: -1,
     scanLimit: 20,
+    /** AI price suggestions per calendar month on Plus. */
+    aiPricingLimit: 50,
     trialDays: 14,
     badge: "Most Popular",
     description: "For growing designers who want AI scanning and deeper insights.",
@@ -213,6 +218,8 @@ export const SUBSCRIPTION_PLANS = [
     ],
     clientLimit: -1,
     scanLimit: -1,
+    /** Unlimited AI price suggestions on Pro. */
+    aiPricingLimit: -1,
     trialDays: 14,
     badge: "Best Value",
     description: "For established studios and high-volume designers.",

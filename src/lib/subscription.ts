@@ -15,6 +15,7 @@ type Action =
   | "create_client"
   | "create_scan"
   | "use_ai_scan"
+  | "use_ai_pricing"
   | "export_pdf"
   | "email_notification"
   | "sms_notification"
@@ -68,6 +69,35 @@ export function checkSubscriptionLimit(
         return {
           allowed: false,
           message: `You have used all ${plan.scanLimit} AI scans for this month on the ${plan.name} plan. Upgrade to Pro for unlimited scans, or buy pay-per-scan credits for ₦150 each.`,
+        };
+      }
+      return { allowed: true, message: "" };
+    }
+
+    case "use_ai_pricing": {
+      // Free plan: 5 lifetime trial suggestions, then upgrade
+      if (planId === "free") {
+        const used = lifetimeCount ?? 0;
+        const trial = plan.aiPricingLimit; // 5
+        if (used < trial) {
+          const remaining = trial - used;
+          return {
+            allowed: true,
+            message: `${remaining} free AI price suggestion${remaining === 1 ? "" : "s"} remaining`,
+          };
+        }
+        return {
+          allowed: false,
+          message: `You've used your ${trial} free trial AI price suggestions. Upgrade to Plus (₦1,500/month, 50/month) or Pro (unlimited) to keep getting AI pricing help.`,
+        };
+      }
+      // Unlimited on Pro
+      if (plan.aiPricingLimit === -1) return { allowed: true, message: "" };
+      // Plus: monthly limit
+      if (currentCount !== undefined && currentCount >= plan.aiPricingLimit) {
+        return {
+          allowed: false,
+          message: `You have used all ${plan.aiPricingLimit} AI price suggestions for this month on the ${plan.name} plan. Upgrade to Pro for unlimited suggestions.`,
         };
       }
       return { allowed: true, message: "" };
