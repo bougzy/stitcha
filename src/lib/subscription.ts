@@ -17,10 +17,18 @@ type Action =
   | "use_ai_scan"
   | "use_ai_pricing"
   | "use_ai_quotation"
+  | "use_ai_caption"
+  | "use_ai_broadcast"
   | "export_pdf"
   | "email_notification"
   | "sms_notification"
   | "public_profile";
+
+/** ActivityLog `action` values that share one pooled "AI assist" quota per
+ *  plan (price suggestions, quotations, captions, and any future AI-writing
+ *  feature). Kept here so every route that checks/counts this quota uses the
+ *  exact same list. */
+export const AI_ASSIST_ACTIONS = ["ai_price_suggestion", "ai_quotation", "ai_caption", "ai_broadcast"];
 
 function getPlan(subscription: string) {
   return SUBSCRIPTION_PLANS.find((p) => p.id === subscription) || SUBSCRIPTION_PLANS[0];
@@ -76,11 +84,20 @@ export function checkSubscriptionLimit(
     }
 
     case "use_ai_pricing":
-    case "use_ai_quotation": {
-      // Both AI-writing features (price suggestions + quotation messages)
+    case "use_ai_quotation":
+    case "use_ai_caption":
+    case "use_ai_broadcast": {
+      // Price suggestions, quotations, captions, and broadcast messages
       // share one monthly "AI assist" pool per plan, tracked by the caller
-      // across both ActivityLog actions.
-      const label = action === "use_ai_quotation" ? "AI quotation" : "AI price suggestion";
+      // across all four ActivityLog actions (see AI_ASSIST_ACTIONS above).
+      const label =
+        action === "use_ai_quotation"
+          ? "AI quotation"
+          : action === "use_ai_caption"
+          ? "AI caption"
+          : action === "use_ai_broadcast"
+          ? "AI broadcast message"
+          : "AI price suggestion";
       if (planId === "free") {
         const used = lifetimeCount ?? 0;
         const trial = plan.aiPricingLimit; // 5

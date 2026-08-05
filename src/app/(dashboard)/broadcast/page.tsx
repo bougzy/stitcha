@@ -225,6 +225,39 @@ export default function BroadcastPage() {
     setMessage(lang === "pidgin" ? t.pidgin : t.en);
   }
 
+  /* ---- AI message writer ---- */
+  const [showAiPrompt, setShowAiPrompt] = useState(false);
+  const [aiGoal, setAiGoal] = useState("");
+  const [generatingMessage, setGeneratingMessage] = useState(false);
+
+  async function handleGenerateMessage() {
+    const seg = SEGMENTS.find((s) => s.id === segment);
+    try {
+      setGeneratingMessage(true);
+      const res = await fetch("/api/ai/broadcast-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segment: seg?.label || segment,
+          segmentDescription: seg?.description || "",
+          goal: aiGoal.trim() || undefined,
+          lang,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error || "Couldn't generate a message right now");
+        return;
+      }
+      setMessage(json.data.message);
+      setShowAiPrompt(false);
+    } catch {
+      toast.error("Couldn't reach the AI writer. Try again.");
+    } finally {
+      setGeneratingMessage(false);
+    }
+  }
+
   async function startWASend() {
     setWaIdx(0);
     setWaSentIds(new Set());
@@ -473,6 +506,17 @@ export default function BroadcastPage() {
 
           {/* Templates */}
           <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowAiPrompt((v) => !v)}
+              className={`flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors ${
+                showAiPrompt
+                  ? "border-[#D4A853] bg-[#D4A853]/10 text-[#D4A853]"
+                  : "border-[#D4A853]/40 bg-[#D4A853]/[0.06] text-[#D4A853]"
+              }`}
+            >
+              <Sparkles className="h-3 w-3" />
+              AI Write
+            </button>
             {TEMPLATES.map((t) => (
               <button
                 key={t.id}
@@ -483,6 +527,22 @@ export default function BroadcastPage() {
               </button>
             ))}
           </div>
+
+          {showAiPrompt && (
+            <div className="flex flex-col gap-2 rounded-xl border border-[#D4A853]/25 bg-[#D4A853]/[0.05] p-3 sm:flex-row">
+              <input
+                type="text"
+                value={aiGoal}
+                onChange={(e) => setAiGoal(e.target.value)}
+                placeholder={`What's this about? (optional — leave blank and I'll infer it from "${SEGMENTS.find((s) => s.id === segment)?.label}")`}
+                className="glass-input flex-1 rounded-lg px-3 py-2 text-xs focus-visible:outline-none"
+              />
+              <Button size="sm" onClick={handleGenerateMessage} loading={generatingMessage}>
+                <Sparkles className="h-3.5 w-3.5" />
+                Generate
+              </Button>
+            </div>
+          )}
 
           <textarea
             rows={6}

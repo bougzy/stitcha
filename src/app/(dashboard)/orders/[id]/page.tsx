@@ -1814,6 +1814,7 @@ function FeatureOnFeedCard({
   const [draft, setDraft] = useState(caption);
   const [saving, setSaving] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [generatingCaption, setGeneratingCaption] = useState(false);
 
   const boostActive = !!boostedUntil && new Date(boostedUntil) > new Date();
   const boostDaysLeft = boostActive
@@ -1822,6 +1823,27 @@ function FeatureOnFeedCard({
 
   function startBoost() {
     setPaymentOpen(true);
+  }
+
+  async function handleGenerateCaption() {
+    try {
+      setGeneratingCaption(true);
+      const res = await fetch("/api/ai/caption", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error || "Couldn't generate a caption right now");
+        return;
+      }
+      setDraft(json.data.caption);
+    } catch {
+      toast.error("Couldn't reach the caption assistant. Try again.");
+    } finally {
+      setGeneratingCaption(false);
+    }
   }
 
   async function patch(body: Record<string, unknown>) {
@@ -1970,12 +1992,24 @@ function FeatureOnFeedCard({
                   </span>
                 )}
               </p>
-              <button
-                onClick={() => { setDraft(caption); setEditing(true); }}
-                className="shrink-0 text-[10px] font-semibold text-[#C75B39] underline"
-              >
-                {caption ? "Edit" : "Add"}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {!caption && (
+                  <button
+                    onClick={async () => { setEditing(true); await handleGenerateCaption(); }}
+                    disabled={generatingCaption}
+                    className="flex items-center gap-1 text-[10px] font-semibold text-[#D4A853] disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    {generatingCaption ? "Writing..." : "AI"}
+                  </button>
+                )}
+                <button
+                  onClick={() => { setDraft(caption); setEditing(true); }}
+                  className="text-[10px] font-semibold text-[#C75B39] underline"
+                >
+                  {caption ? "Edit" : "Add"}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -1989,6 +2023,14 @@ function FeatureOnFeedCard({
                 autoFocus
               />
               <div className="flex items-center justify-between">
+                <button
+                  onClick={handleGenerateCaption}
+                  disabled={generatingCaption}
+                  className="flex items-center gap-1 text-[10px] font-semibold text-[#D4A853] disabled:opacity-50"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {generatingCaption ? "Writing..." : "Generate with AI"}
+                </button>
                 <span className="text-[10px] text-[#1A1A2E]/40">{draft.length} / 280</span>
                 <div className="flex gap-2">
                   <button

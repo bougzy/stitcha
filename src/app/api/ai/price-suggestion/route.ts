@@ -7,7 +7,7 @@ import { Order } from "@/lib/models/order";
 import { Designer } from "@/lib/models/designer";
 import { ActivityLog, logActivity } from "@/lib/models/activity-log";
 import { loadDesignerForAction, getEffectivePlan } from "@/lib/access-control";
-import { checkSubscriptionLimit } from "@/lib/subscription";
+import { checkSubscriptionLimit, AI_ASSIST_ACTIONS } from "@/lib/subscription";
 import { getPriceSuggestion, type HistoricalPriceStats } from "@/lib/ai-pricing";
 
 /* -------------------------------------------------------------------------- */
@@ -52,8 +52,6 @@ export async function POST(request: NextRequest) {
 
     const plan = getEffectivePlan(gate.designer);
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-
-    const AI_ASSIST_ACTIONS = ["ai_price_suggestion", "ai_quotation"];
 
     const monthlyCount = await ActivityLog.countDocuments({
       designerId,

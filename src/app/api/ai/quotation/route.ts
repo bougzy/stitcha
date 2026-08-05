@@ -5,7 +5,7 @@ import connectDB from "@/lib/db";
 import { Designer } from "@/lib/models/designer";
 import { ActivityLog, logActivity } from "@/lib/models/activity-log";
 import { loadDesignerForAction, getEffectivePlan } from "@/lib/access-control";
-import { checkSubscriptionLimit } from "@/lib/subscription";
+import { checkSubscriptionLimit, AI_ASSIST_ACTIONS } from "@/lib/subscription";
 import { generateQuotation } from "@/lib/ai-quotation";
 import type { MessageLanguage } from "@/lib/whatsapp";
 
@@ -16,7 +16,6 @@ import type { MessageLanguage } from "@/lib/whatsapp";
 /*  pool per plan) — both actions are counted together here.                  */
 /* -------------------------------------------------------------------------- */
 
-const AI_ASSIST_ACTIONS = ["ai_price_suggestion", "ai_quotation"];
 
 export async function POST(request: NextRequest) {
   try {

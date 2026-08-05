@@ -194,6 +194,7 @@ export const SUBSCRIPTION_PLANS = [
       "Financial dashboard",
       "Fabric & profit calculator",
       "AI price suggestions (50/month)",
+      "AI quotations, captions & broadcast writing",
     ],
     clientLimit: -1,
     scanLimit: 20,
