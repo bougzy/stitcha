@@ -150,6 +150,24 @@ export default function OrderDetailPage() {
     newTotalPaid: number;
   } | null>(null);
 
+  // Payment Links
+  const [paymentLinks, setPaymentLinks] = useState<
+    Array<{
+      id: string;
+      code: string;
+      label: string;
+      amount: number;
+      status: "pending" | "client_marked_paid" | "confirmed" | "cancelled";
+      url: string;
+      createdAt: string;
+    }>
+  >([]);
+  const [showRequestPaymentDialog, setShowRequestPaymentDialog] = useState(false);
+  const [newLinkLabel, setNewLinkLabel] = useState("Balance");
+  const [newLinkAmount, setNewLinkAmount] = useState("");
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [confirmingLinkId, setConfirmingLinkId] = useState<string | null>(null);
+
   /* ---- Fetch order ---- */
   const fetchOrder = useCallback(async () => {
     try {
@@ -174,6 +192,111 @@ export default function OrderDetailPage() {
   useEffect(() => {
     fetchOrder();
   }, [fetchOrder]);
+
+  /* ---- Payment Links ---- */
+  const fetchPaymentLinks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/payment-links`);
+      const json = await res.json();
+      if (json.success) setPaymentLinks(json.data);
+    } catch {
+      /* non-fatal — links list is supplementary */
+    }
+  }, [orderId]);
+
+  useEffect(() => {
+    if (isOwner) fetchPaymentLinks();
+  }, [fetchPaymentLinks, isOwner]);
+
+  const handleCreatePaymentLink = async () => {
+    const amount = parseFloat(newLinkAmount);
+    if (!newLinkLabel.trim()) {
+      toast.error("Give this request a label (e.g. Deposit, Balance)");
+      return;
+    }
+    if (!amount || amount <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+
+    try {
+      setCreatingLink(true);
+      const res = await fetch(`/api/orders/${orderId}/payment-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: newLinkLabel.trim(), amount }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        if (json.needsBankAccount) {
+          toast.error(json.error, { duration: 6000 });
+        } else {
+          toast.error(json.error || "Couldn't create the payment link");
+        }
+        return;
+      }
+
+      toast.success("Payment link created");
+      setShowRequestPaymentDialog(false);
+      setNewLinkAmount("");
+      fetchPaymentLinks();
+
+      // Immediately offer to share it
+      if (order?.client?.phone) {
+        const url = whatsapp.paymentRequest(
+          order.client.phone,
+          order.client.name,
+          json.data.label,
+          json.data.amount,
+          json.data.url,
+          (session?.user as { name?: string } | undefined)?.name || "Your designer"
+        );
+        window.open(url, "_blank");
+      }
+    } catch {
+      toast.error("Couldn't reach the server. Try again.");
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
+  const handleConfirmPaymentLink = async (linkId: string) => {
+    try {
+      setConfirmingLinkId(linkId);
+      const res = await fetch(`/api/orders/${orderId}/payment-links/${linkId}/confirm`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        toast.error(json.error || "Couldn't confirm this payment");
+        return;
+      }
+      toast.success("Payment confirmed and added to this order");
+      fetchPaymentLinks();
+      fetchOrder();
+    } catch {
+      toast.error("Couldn't reach the server. Try again.");
+    } finally {
+      setConfirmingLinkId(null);
+    }
+  };
+
+  const shareExistingLink = (link: { label: string; amount: number; url: string }) => {
+    if (!order?.client?.phone) {
+      toast.error("This client has no phone number on file");
+      return;
+    }
+    const url = whatsapp.paymentRequest(
+      order.client.phone,
+      order.client.name,
+      link.label,
+      link.amount,
+      link.url,
+      (session?.user as { name?: string } | undefined)?.name || "Your designer"
+    );
+    window.open(url, "_blank");
+  };
 
   /* ---- Update status ---- */
   const handleUpdateStatus = async () => {
@@ -1133,6 +1256,75 @@ export default function OrderDetailPage() {
                   )}
                 </div>
               )}
+
+              {/* Payment Links — shareable requests paid into the designer's own bank account */}
+              {isOwner && balance > 0 && (
+                <div className="mt-4 border-t border-[#1A1A2E]/6 pt-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[#1A1A2E]/35">
+                      Payment Links
+                    </p>
+                    <button
+                      onClick={() => {
+                        setNewLinkLabel(order.payments && order.payments.length > 0 ? "Balance" : "Deposit");
+                        setNewLinkAmount(String(balance));
+                        setShowRequestPaymentDialog(true);
+                      }}
+                      className="flex items-center gap-1 text-[10px] font-medium text-[#C75B39] hover:text-[#C75B39]/80"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Request Payment
+                    </button>
+                  </div>
+
+                  {paymentLinks.length > 0 && (
+                    <div className="space-y-1.5">
+                      {paymentLinks
+                        .filter((l) => l.status !== "cancelled")
+                        .map((link) => (
+                          <div
+                            key={link.id}
+                            className="flex items-center gap-2 rounded-lg bg-white/50 px-3 py-2"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-[#1A1A2E]">
+                                {link.label} · {formatCurrency(link.amount)}
+                              </p>
+                              <p className="text-[10px] text-[#1A1A2E]/40">
+                                {link.status === "confirmed"
+                                  ? "Confirmed"
+                                  : link.status === "client_marked_paid"
+                                  ? "Client says paid — needs confirmation"
+                                  : "Awaiting payment"}
+                              </p>
+                            </div>
+                            {link.status === "confirmed" ? (
+                              <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+                            ) : (
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <button
+                                  onClick={() => shareExistingLink(link)}
+                                  className="rounded-lg p-1.5 text-[#1A1A2E]/40 hover:bg-[#1A1A2E]/5 hover:text-[#1A1A2E]/70"
+                                  title="Share via WhatsApp"
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5" />
+                                </button>
+                                <Button
+                                  size="sm"
+                                  variant={link.status === "client_marked_paid" ? "default" : "outline"}
+                                  onClick={() => handleConfirmPaymentLink(link.id)}
+                                  loading={confirmingLinkId === link.id}
+                                >
+                                  Confirm
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </GlassCard>
           </motion.div>
         </div>
@@ -1540,6 +1732,58 @@ export default function OrderDetailPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Request Payment Dialog */}
+        <Dialog open={showRequestPaymentDialog} onOpenChange={setShowRequestPaymentDialog}>
+          <DialogContent>
+            <DialogClose />
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-[#C75B39]" />
+                Request Payment
+              </DialogTitle>
+              <DialogDescription>
+                Creates a shareable link your client can pay directly into your bank account —
+                Stitcha never touches this money.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-[10px] font-medium text-[#1A1A2E]/45">
+                  Label
+                </label>
+                <input
+                  type="text"
+                  value={newLinkLabel}
+                  onChange={(e) => setNewLinkLabel(e.target.value)}
+                  placeholder="e.g. Deposit, Installment 2, Balance"
+                  className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#D4A853]/40 focus:ring-1 focus:ring-[#D4A853]/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-medium text-[#1A1A2E]/45">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  value={newLinkAmount}
+                  onChange={(e) => setNewLinkAmount(e.target.value)}
+                  placeholder={`Max: ${formatCurrency(balance)}`}
+                  className="w-full rounded-lg border border-[#1A1A2E]/10 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#D4A853]/40 focus:ring-1 focus:ring-[#D4A853]/20"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowRequestPaymentDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleCreatePaymentLink} loading={creatingLink}>
+                  <MessageCircle className="h-4 w-4" />
+                  Create & Share
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageTransition>
   );
@@ -1722,7 +1966,7 @@ function FeatureOnFeedCard({
                   </>
                 ) : (
                   <span className="text-[#1A1A2E]/40">
-                    Add a caption (optional) — e.g. "Ankara dress for Owambe, hand-finished"
+                    Add a caption (optional) — e.g. &quot;Ankara dress for Owambe, hand-finished&quot;
                   </span>
                 )}
               </p>

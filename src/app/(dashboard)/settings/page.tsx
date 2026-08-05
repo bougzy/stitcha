@@ -21,6 +21,7 @@ import {
   Crown,
   Camera,
   Zap,
+  Wallet,
 } from "lucide-react";
 import { PageTransition } from "@/components/common/page-transition";
 import { GlassCard } from "@/components/common/glass-card";
@@ -596,6 +597,9 @@ function BusinessTab({
         </div>
       </GlassCard>
 
+      {/* Bank Account — for client payment links */}
+      <BankAccountCard designer={designer} onUpdate={onUpdate} />
+
       {/* Subscription Plan */}
       <GlassCard padding="lg">
         <div className="space-y-4">
@@ -713,8 +717,111 @@ function BusinessTab({
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Security Tab                                                               */
+/*  Bank Account Card                                                          */
+/*  Where the designer's OWN clients pay them via Payment Links.               */
+/*  Stitcha never touches this account — it's shown directly to clients.      */
 /* -------------------------------------------------------------------------- */
+
+function BankAccountCard({
+  designer,
+  onUpdate,
+}: {
+  designer: Designer;
+  onUpdate: (d: Designer) => void;
+}) {
+  const [bankName, setBankName] = useState(designer.bankAccount?.bankName || "");
+  const [accountNumber, setAccountNumber] = useState(designer.bankAccount?.accountNumber || "");
+  const [accountName, setAccountName] = useState(designer.bankAccount?.accountName || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const hasChanged =
+    bankName !== (designer.bankAccount?.bankName || "") ||
+    accountNumber !== (designer.bankAccount?.accountNumber || "") ||
+    accountName !== (designer.bankAccount?.accountName || "");
+
+  async function handleSave() {
+    if (!bankName.trim() || !accountNumber.trim() || !accountName.trim()) {
+      toast.error("Fill in all three fields");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/designer/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bankAccount: {
+            bankName: bankName.trim(),
+            accountNumber: accountNumber.trim(),
+            accountName: accountName.trim(),
+          },
+        }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        toast.error(json.error || "Failed to save bank account");
+        return;
+      }
+
+      onUpdate(json.data);
+      toast.success("Bank account saved — you can now send Payment Links to clients");
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <GlassCard padding="lg">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Wallet className="h-5 w-5 text-[#C75B39]" strokeWidth={1.5} />
+            <div>
+              <h2 className="text-lg font-semibold text-[#1A1A2E]">Bank Account</h2>
+              <p className="mt-0.5 text-sm text-[#1A1A2E]/45">
+                Where clients pay you when you send a Payment Link. Stitcha never holds this money.
+              </p>
+            </div>
+          </div>
+          {hasChanged && (
+            <Button size="sm" onClick={handleSave} loading={isSaving} className="gap-1.5">
+              <Check className="h-3.5 w-3.5" />
+              Save
+            </Button>
+          )}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Bank Name"
+            placeholder="e.g. GTBank, Opay, Kuda"
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+          />
+          <Input
+            label="Account Number"
+            placeholder="10-digit account number"
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value)}
+          />
+          <div className="sm:col-span-2">
+            <Input
+              label="Account Name"
+              placeholder="Name on the account"
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
 
 function SecurityTab() {
   const [isSaving, setIsSaving] = useState(false);

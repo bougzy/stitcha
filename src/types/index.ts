@@ -28,6 +28,11 @@ export interface Designer {
   isOnboarded: boolean;
   isVerified: boolean;
   publicProfile: boolean;
+  bankAccount?: {
+    bankName?: string;
+    accountNumber?: string;
+    accountName?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }

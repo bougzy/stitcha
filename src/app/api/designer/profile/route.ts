@@ -116,6 +116,7 @@ export async function PUT(request: Request) {
       "avatar",
       "specialties",
       "publicProfile",
+      "bankAccount",
     ];
 
     const updateData: Record<string, unknown> = {};

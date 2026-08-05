@@ -313,5 +313,25 @@ export const whatsapp = {
   custom(phone: string, message: string): string {
     return waLink(phone, message);
   },
+
+  /** Payment link share message */
+  paymentRequest(
+    phone: string,
+    clientName: string,
+    label: string,
+    amount: number,
+    url: string,
+    businessName: string,
+    currency: string = "NGN",
+    lang: MessageLanguage = "english"
+  ): string {
+    const symbol = currency === "NGN" ? "₦" : currency + " ";
+    const amtStr = `${symbol}${Math.round(amount).toLocaleString()}`;
+    const msg =
+      lang === "pidgin"
+        ? `Hello ${clientName}! 👋\n\n${label}: *${amtStr}*\n\nUse this link to pay — you go see my account details there:\n${url}\n\nThank you! 🙏\n\n— ${businessName}`
+        : `Hi ${clientName},\n\nHere's your payment request — *${label}: ${amtStr}*.\n\nPay directly using this link (shows my account details):\n${url}\n\nThank you! 🙏\n\n— ${businessName}`;
+    return waLink(phone, msg);
+  },
 };
 

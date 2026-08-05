@@ -135,6 +135,13 @@ export interface IDesigner extends Document {
     logoUrl?: string;
     customSlug?: string;
   };
+  /** Bank account designers give to their OWN clients for payment links —
+   *  Stitcha never touches this money; it's shown directly to the client. */
+  bankAccount?: {
+    bankName?: string;
+    accountNumber?: string;
+    accountName?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -187,6 +194,11 @@ const DesignerSchema = new Schema<IDesigner>(
       brandColor: { type: String, default: "#C75B39" },
       logoUrl:    { type: String },
       customSlug: { type: String, index: true, sparse: true },
+    },
+    bankAccount: {
+      bankName:      { type: String, trim: true },
+      accountNumber: { type: String, trim: true },
+      accountName:   { type: String, trim: true },
     },
   },
   {
